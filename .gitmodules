@@ -1,0 +1,9 @@
+[submodule "vendor/browser-act-skills"]
+	path = vendor/browser-act-skills
+	url = https://github.com/browser-act/skills.git
+[submodule "vendor/mediacrawler"]
+	path = vendor/mediacrawler
+	url = https://github.com/NanmiCoder/MediaCrawler.git
+[submodule "vendor/rsshub"]
+	path = vendor/rsshub
+	url = https://github.com/DIYgod/RSSHub.git

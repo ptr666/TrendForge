@@ -1,0 +1,33 @@
+{
+  "sources": [
+    {
+      "id": "ai-workflow-newsletter",
+      "name": "AI 工作流观察",
+      "type": "newsletter",
+      "url": "https://example.com/newsletter",
+      "watchFor": [
+        "AI 自动化",
+        "工作流",
+        "个人效率",
+        "公众号选题"
+      ],
+      "checkEveryHours": 24,
+      "priority": "high",
+      "notes": "适合改写成面向普通人的实战内容"
+    },
+    {
+      "id": "creator-blog",
+      "name": "创作者博客",
+      "type": "blog",
+      "url": "https://example.com/blog",
+      "watchFor": [
+        "内容增长",
+        "选题",
+        "分发"
+      ],
+      "checkEveryHours": 48,
+      "priority": "medium",
+      "notes": "适合作为公众号案例素材"
+    }
+  ]
+}

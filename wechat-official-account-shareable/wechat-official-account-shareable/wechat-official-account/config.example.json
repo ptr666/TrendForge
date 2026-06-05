@@ -1,0 +1,25 @@
+{
+  "appid": "YOUR_WECHAT_APPID",
+  "appsecret": "YOUR_WECHAT_APPSECRET",
+  "legacyCredentialSource": "./wechat-publish-v3.js",
+  "articlePath": "./articles/sample-article.md",
+  "author": "普通人的AI",
+  "digest": "QClaw 公众号自动发布的测试草稿",
+  "contentSourceUrl": "",
+  "cover": {
+    "width": 1280,
+    "height": 720,
+    "imagePath": "",
+    "prompt": "",
+    "ai": {
+      "mode": "generate",
+      "baseUrl": "https://your-openai-compatible-api.example.com/v1",
+      "model": "YOUR_IMAGE_MODEL",
+      "apiKey": "YOUR_IMAGE_API_KEY"
+    }
+  },
+  "comment": {
+    "needOpenComment": true,
+    "onlyFansCanComment": false
+  }
+}

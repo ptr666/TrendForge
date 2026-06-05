@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "WeChat Article Brief",
+  "type": "object",
+  "required": ["title", "sections"],
+  "properties": {
+    "title": { "type": "string" },
+    "author": { "type": "string" },
+    "digest": { "type": "string" },
+    "coverImagePath": { "type": "string" },
+    "sourceUrl": { "type": "string" },
+    "intro": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "lead": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "introBridge": { "type": "string" },
+    "quote": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "keyTakeaway": {
+      "oneOf": [
+        { "type": "string" },
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      ]
+    },
+    "sections": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["heading"],
+        "properties": {
+          "heading": { "type": "string" },
+          "lead": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "paragraphs": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "bullets": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "quote": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            ]
+          },
+          "keyTakeaway": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "array",
+                "items": { "type": "string" }
+              }
+            ]
+          },
+          "examplesHeading": { "type": "string" },
+          "examples": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "actionHeading": { "type": "string" },
+          "actionItems": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "closing": {
+            "type": "array",
+            "items": { "type": "string" }
+          }
+        },
+        "additionalProperties": true
+      }
+    },
+    "conclusionHeading": { "type": "string" },
+    "conclusion": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "closingNote": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "cta": { "type": "string" }
+  },
+  "additionalProperties": true
+}

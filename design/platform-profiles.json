@@ -1,0 +1,27 @@
+{
+  "wechat": {
+    "tone": "理性、清晰、适合公众号长文传播",
+    "length": "medium_long",
+    "imageRatio": "16:9",
+    "publishTarget": "official_account_draft",
+    "needsCover": true,
+    "needsFrontmatter": true,
+    "needsPreview": true
+  },
+  "xhs": {
+    "tone": "更短、更强节奏、更适合卡片式浏览",
+    "length": "short_medium",
+    "imageRatio": "3:4",
+    "publishTarget": "browser_draft_box",
+    "needsCover": false,
+    "needsPreview": false
+  },
+  "review": {
+    "tone": "内部审阅、保留信息密度",
+    "length": "any",
+    "imageRatio": "any",
+    "publishTarget": "internal_review",
+    "needsCover": false,
+    "needsPreview": true
+  }
+}

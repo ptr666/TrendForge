@@ -1,0 +1,21 @@
+{
+  "name": "trendforge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first AI trend content workflow workspace.",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "check": "tsc -p tsconfig.json --noEmit",
+    "cli": "node dist/apps/cli/src/index.js",
+    "api": "node dist/apps/api/src/server.js",
+    "test": "node --test \"dist/tests/**/*.test.js\""
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "name": "wechat-official-account-publisher",
+  "version": "1.0.0",
+  "private": true,
+  "description": "微信公众号草稿发布工具",
+  "main": "wechat-final.js",
+  "scripts": {
+    "check": "node wechat-final.js --check",
+    "publish": "node wechat-final.js",
+    "publish:force": "node wechat-final.js --force",
+    "compose": "node compose-and-publish.js",
+    "preview": "node render-wechat-preview.js",
+    "watch:sources": "node watch-topic-sources.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "gray-matter": "^4.0.3",
+    "markdown-it": "^14.1.0"
+  }
+}

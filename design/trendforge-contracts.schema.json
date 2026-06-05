@@ -1,0 +1,223 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "TrendForge Contracts",
+  "type": "object",
+  "required": ["pipeline", "adapters", "platformProfiles", "records"],
+  "properties": {
+    "collectors": {
+      "type": "object",
+      "required": ["defaultOrder"],
+      "properties": {
+        "defaultOrder": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["rsshub", "browseract", "mediacrawler"]
+          }
+        },
+        "rsshub": { "$ref": "#/$defs/collectorConfig" },
+        "browseract": { "$ref": "#/$defs/collectorConfig" },
+        "mediacrawler": {
+          "allOf": [
+            { "$ref": "#/$defs/collectorConfig" },
+            {
+              "type": "object",
+              "properties": {
+                "enabledByDefault": { "const": false },
+                "allowedPlatforms": {
+                  "type": "array",
+                  "items": { "type": "string" }
+                },
+                "requiresComplianceCheck": { "const": true }
+              }
+            }
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
+    "pipeline": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "collect",
+          "verify",
+          "fetch_full_text",
+          "score",
+          "select",
+          "rewrite",
+          "compose_media",
+          "publish"
+        ]
+      }
+    },
+    "adapters": {
+      "type": "object",
+      "required": ["wechat", "xhs"],
+      "properties": {
+        "wechat": {
+          "type": "object",
+          "required": ["mode", "inputs", "outputs", "preconditions"],
+          "properties": {
+            "mode": { "const": "api_draft" },
+            "inputs": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "outputs": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "preconditions": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        },
+        "xhs": {
+          "type": "object",
+          "required": ["mode", "inputs", "outputs", "preconditions"],
+          "properties": {
+            "mode": { "const": "browser_draft" },
+            "inputs": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "outputs": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "preconditions": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "platformProfiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": ["tone", "length", "imageRatio", "publishTarget"],
+        "properties": {
+          "tone": { "type": "string" },
+          "length": { "type": "string" },
+          "imageRatio": { "type": "string" },
+          "publishTarget": { "type": "string" }
+        },
+        "additionalProperties": true
+      }
+    },
+    "records": {
+      "type": "object",
+      "required": ["sourceItem", "verification", "selection", "draft", "asset", "publishResult"],
+      "properties": {
+        "sourceItem": {
+          "type": "object",
+          "required": ["id", "sourceType", "title", "url"],
+          "properties": {
+            "id": { "type": "string" },
+            "sourceType": { "type": "string" },
+            "collectorAdapter": {
+              "type": "string",
+              "enum": ["rsshub", "browseract", "mediacrawler", "manual", "api"]
+            },
+            "complianceStatus": {
+              "type": "string",
+              "enum": ["not_required", "pending", "approved", "rejected"]
+            },
+            "title": { "type": "string" },
+            "url": { "type": "string" },
+            "rawText": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "verification": {
+          "type": "object",
+          "required": ["status"],
+          "properties": {
+            "status": {
+              "type": "string",
+              "enum": ["pending", "verified", "partial", "failed"]
+            },
+            "method": { "type": "string" },
+            "evidenceUrl": { "type": "string" },
+            "fullText": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "selection": {
+          "type": "object",
+          "required": ["score"],
+          "properties": {
+            "score": { "type": "number" },
+            "reason": { "type": "string" },
+            "tags": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          },
+          "additionalProperties": true
+        },
+        "draft": {
+          "type": "object",
+          "required": ["platform", "title", "body"],
+          "properties": {
+            "platform": {
+              "type": "string",
+              "enum": ["wechat", "xhs", "review"]
+            },
+            "title": { "type": "string" },
+            "body": { "type": "string" },
+            "tone": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "asset": {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": { "type": "string" },
+            "source": { "type": "string" },
+            "path": { "type": "string" },
+            "prompt": { "type": "string" }
+          },
+          "additionalProperties": true
+        },
+        "publishResult": {
+          "type": "object",
+          "required": ["platform", "status"],
+          "properties": {
+            "platform": { "type": "string" },
+            "status": {
+              "type": "string",
+              "enum": ["queued", "success", "failed"]
+            },
+            "externalId": { "type": "string" },
+            "message": { "type": "string" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "$defs": {
+    "collectorConfig": {
+      "type": "object",
+      "required": ["enabled"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "mode": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

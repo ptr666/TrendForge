@@ -1,0 +1,23 @@
+{
+  "collectors": {
+    "defaultOrder": ["rsshub", "browseract", "mediacrawler"],
+    "rsshub": {
+      "enabled": true,
+      "mode": "rss_subscription",
+      "notes": "Default source adapter for normal subscriptions."
+    },
+    "browseract": {
+      "enabled": true,
+      "mode": "browser_verification_and_fulltext",
+      "notes": "Used when RSSHub only returns snippets or a page needs browser rendering."
+    },
+    "mediacrawler": {
+      "enabled": false,
+      "enabledByDefault": false,
+      "mode": "fallback_only",
+      "allowedPlatforms": ["xhs", "dy", "bili", "wb", "zhihu"],
+      "requiresComplianceCheck": true,
+      "notes": "Fallback collector only. Do not use for large-scale crawling or commercial production with the open-source non-commercial edition."
+    }
+  }
+}

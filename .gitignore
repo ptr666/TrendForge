@@ -1,0 +1,13 @@
+node_modules/
+dist/
+.npm-cache/
+.env
+.env.*
+workspace/runs/*.json
+workspace/runs/*.jsonl
+workspace/sources/*
+workspace/articles/*
+workspace/drafts/*
+workspace/assets/*
+workspace/previews/*
+!workspace/**/.gitkeep
