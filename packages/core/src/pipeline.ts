@@ -188,7 +188,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       for (const draft of drafts) {
         const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
         if (publisher) {
-          const publishResult = await publisher.publishDraft(draft);
+          const publishResult = await publisher.publishDraft(draft, { allowRealDraft: request.allowRealDraft === true });
           publishResults.push(publishResult);
           await deps.store.appendEvent(request.runId, {
             stage: "publish",

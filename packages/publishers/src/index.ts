@@ -71,7 +71,21 @@ class PlannedPublisher implements PublisherAdapter {
     };
   }
 
-  async publishDraft(draft: PlatformDraft): Promise<PublishResult> {
+  async publishDraft(draft: PlatformDraft, options: { allowRealDraft?: boolean } = {}): Promise<PublishResult> {
+    const plannedCommands = this.platform === "wechat" ? wechatCommands(draft) : xhsCommands(draft);
+    if (options.allowRealDraft === true) {
+      return {
+        draftId: draft.id,
+        platform: this.platform,
+        status: "failed",
+        message: this.platform === "wechat"
+          ? "Real WeChat draft creation blocked: workflow health gate requires credentials and IP whitelist readiness."
+          : "Real XHS draft save blocked: workflow health gate requires Hermes bridge, extension, and login readiness.",
+        verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required",
+        plannedCommands
+      };
+    }
+
     const message = this.platform === "wechat"
       ? "Planned WeChat draft flow: generate article brief/Markdown, npm run preview, npm run check, then create a draft only after explicit realDraft approval."
       : "Planned XHS draft flow: check-login, fill-publish, verify visible page content, then save-draft only after explicit realDraft approval.";
@@ -81,7 +95,7 @@ class PlannedPublisher implements PublisherAdapter {
       status: "queued",
       message,
       verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required",
-      plannedCommands: this.platform === "wechat" ? wechatCommands(draft) : xhsCommands(draft)
+      plannedCommands
     };
   }
 

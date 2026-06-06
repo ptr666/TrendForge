@@ -115,3 +115,36 @@ test("pipeline does not plan MediaCrawler full-text acquisition unless explicitl
     await rm(rootDir, { recursive: true, force: true });
   }
 });
+
+test("pipeline blocks real platform draft creation when publisher health gates are not ready", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-real-draft-gate-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({ store });
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-real-draft-gate",
+      query: JSON.stringify({
+        items: [{
+          title: "AI publishing workflow",
+          url: "about:blank",
+          summary: "A signal for testing explicit platform draft creation gates.",
+          tags: ["featured"]
+        }]
+      }),
+      requestedPlatforms: ["wechat", "xhs"],
+      allowRealDraft: true,
+      topN: 1
+    });
+
+    const events = await store.readEvents("run-real-draft-gate");
+
+    assert.ok(result.publishResults.every((publishResult) => publishResult.status === "failed"));
+    assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.message?.includes("health gate")));
+    assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.message?.includes("health gate")));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "failed"));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && event.status === "failed"));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});

@@ -169,7 +169,7 @@ export interface PublisherAdapter {
   platform: Exclude<Platform, "review">;
   healthcheck(): Promise<{ ok: boolean; message?: string }>;
   preview(draft: PlatformDraft): Promise<{ ok: boolean; path?: string; message?: string }>;
-  publishDraft(draft: PlatformDraft): Promise<PublishResult>;
+  publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean }): Promise<PublishResult>;
   readLastResult(): Promise<PublishResult | undefined>;
 }
 
