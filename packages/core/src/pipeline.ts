@@ -12,12 +12,27 @@ import type {
   RunStore,
   SourceItem,
   SourceAdapter,
-  VerifiedArticle
+  VerifiedArticle,
+  FullTextProvider
 } from "./types.js";
 
 export interface PipelineDeps {
   store: RunStore;
   sourceAdapters?: SourceAdapter[];
+  fullTextProvider?: FullTextProvider;
+}
+
+function createPlannedFullTextProvider(): FullTextProvider {
+  return {
+    async acquire(item, article) {
+      return {
+        ...article,
+        failureReason: item.url.startsWith("http://") || item.url.startsWith("https://")
+          ? "Original text acquisition planned for BrowserAct."
+          : article.failureReason
+      };
+    }
+  };
 }
 
 export function createDefaultPipeline(deps: PipelineDeps) {
@@ -27,6 +42,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
   const textProvider = createDefaultTextProvider();
   const media = createDefaultMediaComposer();
   const publishers = createPlannedPublishers();
+  const fullTextProvider = deps.fullTextProvider ?? createPlannedFullTextProvider();
 
   return {
     async run(request: PipelineRunRequest): Promise<PipelineRunResult> {
@@ -107,6 +123,16 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             evidenceUrl: item.url,
             command: ["browseract", "stealth-extract", item.url],
             reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
+          });
+          const acquired = await fullTextProvider.acquire(item, article);
+          verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquired);
+          await deps.store.appendEvent(request.runId, {
+            stage: "fetch_full_text",
+            adapter: "browseract",
+            status: acquired.status,
+            sourceItemId: item.id,
+            evidenceUrl: acquired.evidenceUrl,
+            reason: acquired.failureReason
           });
         } else if (request.allowMediaCrawlerFallback === true) {
           await deps.store.appendEvent(request.runId, {

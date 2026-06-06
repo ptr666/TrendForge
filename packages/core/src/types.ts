@@ -142,6 +142,10 @@ export interface TextProvider {
   summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary>;
 }
 
+export interface FullTextProvider {
+  acquire(item: SourceItem, article: VerifiedArticle): Promise<VerifiedArticle>;
+}
+
 export interface ImageProvider {
   planPrompt(draft: PlatformDraft, asset: MediaAsset): Promise<MediaAsset>;
 }

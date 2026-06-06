@@ -50,6 +50,7 @@ Current source workflow facts:
 - RSSHub remains the general RSS/RSSHub adapter for non-AI HOT sources.
 - RSS and AI HOT source items may contain brief text, but original-text acquisition belongs to BrowserAct or MediaCrawler after selection.
 - BrowserAct is the default planned command path for selected HTTP source items that still need original text.
+- `FullTextProvider` is the pipeline seam for plugging in real BrowserAct or MediaCrawler extraction; tests should prove acquired full text feeds summaries and drafts.
 - MediaCrawler is never a default original-text acquisition path; it requires explicit enablement and compliance review.
 
 The skill draft lives at `docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`.

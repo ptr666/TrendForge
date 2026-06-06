@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createDefaultPipeline } from "../../packages/core/src/pipeline.js";
 import { createRunStore } from "../../packages/storage/src/run-store.js";
+import type { FullTextProvider } from "../../packages/core/src/types.js";
 
 const rss = `<?xml version="1.0"?>
 <rss version="2.0">
@@ -60,6 +61,43 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "queued"));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && event.status === "queued"));
     assert.ok(events.some((event) => event.stage === "finished" && event.status === "success"));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("selected RSS item can use BrowserAct full text before summary and drafts", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-fulltext-"));
+  const store = createRunStore({ rootDir });
+  const fullTextProvider: FullTextProvider = {
+    async acquire(item) {
+      return {
+        sourceItemId: item.id,
+        status: "verified",
+        method: "browseract",
+        evidenceUrl: item.url,
+        fullText: "Complete BrowserAct article text. This contains the product research angle used by downstream drafts."
+      };
+    }
+  };
+  const pipeline = createDefaultPipeline({ store, fullTextProvider });
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-browseract-fulltext",
+      query: rss,
+      requestedPlatforms: ["review", "wechat", "xhs"],
+      topN: 1
+    });
+
+    const savedRun = await store.readRun("run-browseract-fulltext");
+    const events = await store.readEvents("run-browseract-fulltext");
+
+    assert.equal(result.verifiedArticles[0]?.status, "verified");
+    assert.equal(result.verifiedArticles[0]?.method, "browseract");
+    assert.equal(savedRun?.summaries[0]?.summary, "Complete BrowserAct article text");
+    assert.ok(savedRun?.drafts.some((draft) => draft.body.includes("Complete BrowserAct article text")));
+    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "verified"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
