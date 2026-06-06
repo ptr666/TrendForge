@@ -12,11 +12,11 @@ export function createDefaultSelector(): Selector {
         score: Math.max(0, 50 + verifiedBonus + textBonus + aiHotBonus - penalty),
         reason: article.status === "verified"
           ? article.method === "aihot"
-            ? "AI HOT source item with usable trend signal."
-            : "Verified source item with usable text."
+            ? "AIHot 条目具备可用热点信号。"
+            : "原文已验证，具备可用内容。"
           : article.status === "partial"
-            ? "Partial source item kept for review."
-            : "Failed item retained only for traceability.",
+            ? "AIHot/RSS 摘要可用于初筛，仍需原文验证。"
+            : "获取失败，仅保留用于诊断。",
         targetPlatforms: ["review", "wechat", "xhs"],
         angle: article.method === "aihot" ? "这是优先级最高的 AIHot 热点信号，适合先进入内容选题池。" : undefined,
         tags: [article.method, article.status]

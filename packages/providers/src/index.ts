@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import type { ArticleSummary, CandidateSelection, ImageProvider, MediaAsset, PlatformDraft, TextProvider, VerifiedArticle } from "../../core/src/types.js";
+import type { ArticleSummary, CandidateSelection, ImageProvider, MediaAsset, PlatformDraft, Selector, TextProvider, VerifiedArticle } from "../../core/src/types.js";
 import type { FullTextProvider, SourceItem } from "../../core/src/types.js";
 
 const execFileAsync = promisify(execFile);
@@ -31,6 +31,15 @@ function compactText(value: string, limit: number): string {
   return value.replace(/\s+/g, " ").trim().slice(0, limit);
 }
 
+function chineseFallbackSummary(sourceText: string): string {
+  if (!sourceText) return "暂无可用摘要。";
+  return `这条 AI 热点信号显示：${sourceText}`;
+}
+
+function chineseFallbackKeyPoint(point: string, index: number): string {
+  return `原文要点 ${index + 1}：${point}`;
+}
+
 export function createDefaultTextProvider(): TextProvider {
   return {
     async summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary> {
@@ -45,9 +54,9 @@ export function createDefaultTextProvider(): TextProvider {
       return {
         sourceItemId: article.sourceItemId,
         title: `AI 趋势信号 ${article.sourceItemId}`,
-        summary: firstSentence || "暂无可用摘要。",
+        summary: chineseFallbackSummary(firstSentence),
         angle: selection.angle ?? "这个信号具备 AI 趋势观察和内容发布价值。",
-        keyPoints: keyPoints.length > 0 ? keyPoints : [selection.reason],
+        keyPoints: keyPoints.length > 0 ? keyPoints.map(chineseFallbackKeyPoint) : [selection.reason],
         riskNotes: article.status === "verified" ? [] : [article.failureReason ?? `文章状态为 ${article.status}。`]
       };
     }
@@ -165,6 +174,71 @@ export function createOpenAICompatibleTextProvider(options: OpenAICompatibleOpti
         sourceItemId: article.sourceItemId,
         ...readSummaryJson(content)
       };
+    }
+  };
+}
+
+function readSelectionJson(content: string, article: VerifiedArticle): CandidateSelection {
+  const parsed = JSON.parse(content) as Partial<CandidateSelection>;
+  return {
+    sourceItemId: article.sourceItemId,
+    score: Number.isFinite(Number(parsed.score)) ? Math.max(0, Math.min(100, Number(parsed.score))) : 50,
+    reason: String(parsed.reason ?? "模型未返回选题理由。"),
+    targetPlatforms: ["review", "wechat", "xhs"],
+    angle: parsed.angle ? String(parsed.angle) : undefined,
+    tags: Array.isArray(parsed.tags) ? parsed.tags.map(String) : [article.method, article.status]
+  };
+}
+
+export function createOpenAICompatibleSelector(options: OpenAICompatibleOptions): Selector {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const endpoint = `${options.baseUrl.replace(/\/$/, "")}/chat/completions`;
+
+  return {
+    async score(article: VerifiedArticle): Promise<CandidateSelection> {
+      const sourceText = compactText(article.fullText ?? article.failureReason ?? "No full text available.", 3000);
+      const response = await fetchImpl(endpoint, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: options.model,
+          temperature: 0.2,
+          response_format: { type: "json_object" },
+          messages: [
+            {
+              role: "system",
+              content: "你是中文 AI 热点选题编辑。请根据来源摘要判断是否值得进入内容生产。返回严格 JSON，字段为 score(0-100)、reason、angle、tags。reason 和 angle 必须使用简体中文。优先选择：新近、可信、信息密度高、适合公众号/小红书讲清楚的 AI 产品、模型、研究、产业动态。"
+            },
+            {
+              role: "user",
+              content: JSON.stringify({
+                sourceItemId: article.sourceItemId,
+                status: article.status,
+                method: article.method,
+                evidenceUrl: article.evidenceUrl,
+                text: sourceText
+              })
+            }
+          ]
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Selector provider failed: ${response.status} ${response.statusText}`);
+      }
+
+      const payload = await response.json() as ChatCompletionResponse;
+      const content = payload.choices?.[0]?.message?.content;
+      if (!content) {
+        throw new Error("Selector provider failed: missing assistant content.");
+      }
+      return readSelectionJson(content, article);
+    },
+    selectTopN(selections: CandidateSelection[], limit: number): CandidateSelection[] {
+      return [...selections].sort((a, b) => b.score - a.score).slice(0, limit);
     }
   };
 }

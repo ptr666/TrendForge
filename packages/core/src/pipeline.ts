@@ -16,7 +16,8 @@ import type {
   SourceAdapter,
   VerifiedArticle,
   FullTextProvider,
-  TextProvider
+  TextProvider,
+  Selector
 } from "./types.js";
 
 export interface PipelineDeps {
@@ -24,6 +25,7 @@ export interface PipelineDeps {
   sourceAdapters?: SourceAdapter[];
   fullTextProvider?: FullTextProvider;
   textProvider?: TextProvider;
+  selector?: Selector;
   publisherHandoffDir?: string;
   fullTextHandoffDir?: string;
   draftArtifactDir?: string;
@@ -52,6 +54,17 @@ function defaultFullTextHandoffDir(runId: string, baseDir?: string): string {
 
 function defaultDraftArtifactDir(runId: string, baseDir?: string): string {
   return baseDir ?? `workspace/runs/${runId}/drafts`;
+}
+
+function isHttpUrl(url: string): boolean {
+  return url.startsWith("http://") || url.startsWith("https://");
+}
+
+function canGenerateFinalDraft(item: SourceItem, article: VerifiedArticle): boolean {
+  if (article.status === "failed") return false;
+  if (article.status === "verified" && article.fullText && article.fullText.trim().length > 0) return true;
+  if (article.status === "partial" && article.fullText && article.fullText.trim().length > 0) return true;
+  return !isHttpUrl(item.url) && Boolean(article.fullText?.trim());
 }
 
 async function writeDraftArtifact(runId: string, draft: PlatformDraft, baseDir?: string): Promise<PlatformDraft> {
@@ -99,7 +112,7 @@ async function writeFullTextHandoff(
 
 export function createDefaultPipeline(deps: PipelineDeps) {
   const verifier = createDefaultVerifier();
-  const selector = createDefaultSelector();
+  const selector = deps.selector ?? createDefaultSelector();
   const generator = createDefaultDraftGenerator();
   const textProvider = deps.textProvider ?? createDefaultTextProvider();
   const media = createDefaultMediaComposer();
@@ -169,14 +182,17 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         });
       }
 
-      const selections = selector.selectTopN(scored, request.topN ?? 5);
-      for (const selection of selections) {
+      const requestedTopN = request.topN ?? 5;
+      const candidateSelections = selector.selectTopN(scored, scored.length);
+      const selections = [];
+      for (const selection of candidateSelections) {
+        if (selections.length >= requestedTopN) break;
         const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
         const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
-        if (!article || !item || article.status === "verified") continue;
-        if (!item.url.startsWith("http://") && !item.url.startsWith("https://")) continue;
+        if (!article || !item) continue;
+        let currentArticle = article;
 
-        if (request.allowBrowserFallback !== false) {
+        if (article.status !== "verified" && isHttpUrl(item.url) && request.allowBrowserFallback !== false) {
           const command = ["browseract", "stealth-extract", item.url];
           const artifactPath = await writeFullTextHandoff(request.runId, item, command, deps.fullTextHandoffDir);
           await deps.store.appendEvent(request.runId, {
@@ -191,6 +207,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
           });
           const acquired = await fullTextProvider.acquire(item, article);
           verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquired);
+          currentArticle = acquired;
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
             adapter: "browseract",
@@ -199,7 +216,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             evidenceUrl: acquired.evidenceUrl,
             reason: acquired.failureReason
           });
-        } else if (request.allowMediaCrawlerFallback === true) {
+        } else if (article.status !== "verified" && isHttpUrl(item.url) && request.allowMediaCrawlerFallback === true) {
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
             adapter: "mediacrawler",
@@ -209,7 +226,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
             reason: "BrowserAct disabled; MediaCrawler fallback requires explicit enablement and compliance review."
           });
-        } else {
+        } else if (article.status !== "verified" && isHttpUrl(item.url)) {
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
             status: "skipped",
@@ -218,6 +235,24 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             reason: "Original text acquisition requires BrowserAct or explicit MediaCrawler fallback."
           });
         }
+
+        if (canGenerateFinalDraft(item, currentArticle)) {
+          selections.push(selection);
+        } else {
+          await deps.store.appendEvent(request.runId, {
+            stage: "select",
+            status: "skipped",
+            sourceItemId: item.id,
+            reason: currentArticle.failureReason ?? "Full original text was not available for final summary generation."
+          });
+        }
+      }
+
+      if (sourceItems.length > 0 && scored.length > 0 && selections.length === 0) {
+        errors.push({
+          stage: "select",
+          message: "No selected candidate had verified original text for final summary generation."
+        });
       }
 
       const summaries = [];

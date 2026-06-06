@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../packages/providers/src/index.js";
+import { createBrowserActFullTextProvider, createOpenAICompatibleSelector, createOpenAICompatibleTextProvider } from "../../packages/providers/src/index.js";
 import type { CandidateSelection, SourceItem, VerifiedArticle } from "../../packages/core/src/types.js";
 
 const item: SourceItem = {
@@ -113,4 +113,42 @@ test("OpenAI-compatible text provider creates summary from chat completion JSON"
   assert.equal(result.title, "Agentic AI workflows");
   assert.equal(result.summary, "AI agents are becoming practical workflow operators.");
   assert.deepEqual(result.keyPoints, ["Agents collect signals", "Teams need review gates"]);
+});
+
+test("OpenAI-compatible selector scores candidates with Chinese reason", async () => {
+  const requests: Array<{ url: string; body: Record<string, unknown>; authorization?: string }> = [];
+  const selector = createOpenAICompatibleSelector({
+    baseUrl: "https://models.example.test/v1",
+    apiKey: "test-key",
+    model: "selector-model",
+    fetchImpl: async (url, init) => {
+      requests.push({
+        url: String(url),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        authorization: init?.headers instanceof Headers ? init.headers.get("authorization") ?? undefined : (init?.headers as Record<string, string>).authorization
+      });
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              score: 93,
+              reason: "信息新、来源清晰，适合进入选题。",
+              angle: "从 AI 工作流产品化角度展开。",
+              tags: ["aihot", "agent"]
+            })
+          }
+        }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+
+  const result = await selector.score(article);
+
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0]?.url, "https://models.example.test/v1/chat/completions");
+  assert.equal(requests[0]?.authorization, "Bearer test-key");
+  assert.equal(requests[0]?.body.model, "selector-model");
+  assert.equal(result.score, 93);
+  assert.equal(result.reason, "信息新、来源清晰，适合进入选题。");
+  assert.equal(result.angle, "从 AI 工作流产品化角度展开。");
 });
