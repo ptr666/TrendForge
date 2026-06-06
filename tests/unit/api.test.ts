@@ -60,7 +60,7 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     }) as {
       runId?: string;
       drafts?: Array<{ platform: string }>;
-      publishResults?: Array<{ platform: string; status: string }>;
+      publishResults?: Array<{ platform: string; status: string; artifactPath?: string }>;
     };
     const runs = await requestJson(`${baseUrl}/runs`) as { runs?: Array<{ runId: string }> };
     const savedRun = await requestJson(`${baseUrl}/runs/api-rss-e2e`) as { runId?: string };
@@ -74,9 +74,11 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.deepEqual(run.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && publishResult.status === "queued"));
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && publishResult.status === "queued"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && typeof publishResult.artifactPath === "string"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.equal(items.items?.[0]?.collectorAdapter, "rsshub");
     assert.deepEqual(drafts.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
-    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract"));
+    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     child.kill();

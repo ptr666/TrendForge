@@ -26,7 +26,7 @@ test("CLI can run RSS pipeline and read back run history events", async () => {
     const run = await runCli(["run", "--run-id", "cli-rss-e2e", "--query-file", rssFixturePath], runsDir) as {
       runId?: string;
       drafts?: Array<{ platform: string }>;
-      publishResults?: Array<{ platform: string; status: string }>;
+      publishResults?: Array<{ platform: string; status: string; artifactPath?: string }>;
     };
     const runs = await runCli(["runs"], runsDir) as { runs?: Array<{ runId: string }> };
     const events = await runCli(["events", "--run-id", "cli-rss-e2e"], runsDir) as {
@@ -37,8 +37,10 @@ test("CLI can run RSS pipeline and read back run history events", async () => {
     assert.deepEqual(run.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && publishResult.status === "queued"));
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && publishResult.status === "queued"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && typeof publishResult.artifactPath === "string"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.equal(runs.runs?.[0]?.runId, "cli-rss-e2e");
-    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract"));
+    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(runsDir, { recursive: true, force: true });
@@ -53,7 +55,7 @@ test("CLI can run AIHot fixture pipeline and read back run history events", asyn
       runId?: string;
       sourceItems?: Array<{ collectorAdapter: string }>;
       drafts?: Array<{ platform: string }>;
-      publishResults?: Array<{ platform: string; status: string }>;
+      publishResults?: Array<{ platform: string; status: string; artifactPath?: string }>;
     };
     const events = await runCli(["events", "--run-id", "cli-aihot-e2e"], runsDir) as {
       events?: Array<Record<string, unknown>>;
@@ -64,8 +66,10 @@ test("CLI can run AIHot fixture pipeline and read back run history events", asyn
     assert.deepEqual(run.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && publishResult.status === "queued"));
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && publishResult.status === "queued"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && typeof publishResult.artifactPath === "string"));
+    assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "collect" && event.adapter === "aihot"));
-    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract"));
+    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(runsDir, { recursive: true, force: true });
