@@ -120,6 +120,7 @@ The backend-first workflow is available through API and CLI surfaces:
 The API exposes matching run inspection surfaces:
 
 - `POST /pipeline/run`
+- `POST /pipeline/run` accepts an optional `runId` for reproducible run history checks.
 - `GET /runs`
 - `GET /runs/:runId`
 - `GET /runs/:runId/events`

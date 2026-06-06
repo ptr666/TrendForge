@@ -39,7 +39,7 @@ const server = http.createServer(async (req, res) => {
       ? body.requestedPlatforms.filter((platform): platform is Platform => ["review", "wechat", "xhs"].includes(String(platform)))
       : ["review", "wechat", "xhs"] satisfies Platform[];
     const result = await pipeline.run({
-      runId: `run-${Date.now()}`,
+      runId: typeof body.runId === "string" ? body.runId : `run-${Date.now()}`,
       query: typeof body.query === "string" ? body.query : "api-run",
       requestedPlatforms,
       allowBrowserFallback: body.allowBrowserFallback !== false,
