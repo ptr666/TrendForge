@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
-import { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
+import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import { readSubscriptions } from "../../../packages/config/src/subscriptions.js";
 import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
@@ -85,6 +85,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/sources") {
     send(res, 200, {
       defaultCollectorOrder,
+      defaultFullTextAcquisitionOrder,
       aiHotDefaults,
       mediaCrawlerDefaults,
       subscriptions: await readSubscriptions()

@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { defaultCollectorOrder, defaultFullTextAcquisitionOrder } from "../../packages/config/src/index.js";
 import { AiHotSourceAdapter, createDefaultSourceAdapters } from "../../packages/sources/src/adapters.js";
 
 test("aihot adapter normalizes skill JSON into source items", async () => {
@@ -27,4 +28,9 @@ test("default source adapters prioritize aihot before rsshub", () => {
   const adapters = createDefaultSourceAdapters();
 
   assert.deepEqual(adapters.map((adapter) => adapter.name), ["aihot", "rsshub", "browseract", "mediacrawler"]);
+});
+
+test("public source order separates collection from original text acquisition", () => {
+  assert.deepEqual(defaultCollectorOrder, ["aihot", "rsshub"]);
+  assert.deepEqual(defaultFullTextAcquisitionOrder, ["browseract", "mediacrawler"]);
 });

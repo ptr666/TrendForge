@@ -118,7 +118,7 @@ The backend-first workflow is available through API and CLI surfaces:
 - `trendforge run-subscription --subscription-id <id>` runs an enabled local source subscription.
 - `trendforge runs` lists saved pipeline runs.
 - `trendforge events --run-id <id>` reads stage events for a run.
-- `trendforge sources` prints source adapter defaults, AI HOT priority, and local subscriptions.
+- `trendforge sources` prints source adapter defaults, original-text acquisition defaults, AI HOT priority, and local subscriptions.
 - `trendforge publishers` prints publisher adapter health.
 
 The API exposes matching run inspection surfaces:
@@ -132,5 +132,7 @@ The API exposes matching run inspection surfaces:
 - `GET /drafts`
 - `GET /sources`
 - `GET /publishers`
+
+`defaultCollectorOrder` describes brief-information collection only: AI HOT first, then generic RSS/RSSHub. `defaultFullTextAcquisitionOrder` describes original-text completion after selection: BrowserAct first, then MediaCrawler only when explicitly enabled.
 
 Set `TRENDFORGE_RUNS_DIR=<path>` to isolate run history during tests, experiments, or scripted verification.

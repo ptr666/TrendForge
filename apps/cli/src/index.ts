@@ -75,9 +75,9 @@ async function main(): Promise<void> {
   }
 
   if (command === "sources") {
-    const { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } = await import("../../../packages/config/src/index.js");
+    const { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } = await import("../../../packages/config/src/index.js");
     const { readSubscriptions } = await import("../../../packages/config/src/subscriptions.js");
-    console.log(JSON.stringify({ defaultCollectorOrder, aiHotDefaults, mediaCrawlerDefaults, subscriptions: await readSubscriptions() }, null, 2));
+    console.log(JSON.stringify({ defaultCollectorOrder, defaultFullTextAcquisitionOrder, aiHotDefaults, mediaCrawlerDefaults, subscriptions: await readSubscriptions() }, null, 2));
     return;
   }
 

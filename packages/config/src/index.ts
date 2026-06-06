@@ -10,7 +10,9 @@ export const defaultPipeline = [
   "publish"
 ] as const;
 
-export const defaultCollectorOrder = ["aihot", "rsshub", "browseract", "mediacrawler"] as const;
+export const defaultCollectorOrder = ["aihot", "rsshub"] as const;
+
+export const defaultFullTextAcquisitionOrder = ["browseract", "mediacrawler"] as const;
 
 export const aiHotDefaults = {
   enabled: true,

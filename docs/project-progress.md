@@ -7,7 +7,7 @@ This document defines how TrendForge development is sequenced and tracked. It is
 Phase 1 focuses on making the local AI trend content pipeline real and observable:
 
 ```text
-source input -> verification -> selection -> platform draft -> media planning -> publish adapter state -> run history
+AIHot/RSS source input -> brief verification -> selection -> BrowserAct/MediaCrawler original text acquisition -> summary -> platform draft -> media planning -> publish adapter state -> run history
 ```
 
 The first phase should deepen a runnable pipeline instead of horizontally filling every package.
@@ -36,7 +36,8 @@ Detailed PRDs and implementation issues live in `.scratch/<feature-slug>/` as de
 | 5 | WeChat draft maps to the `wechat-official-account-workflow` skill contract | done | Dry-run publish results and run events include queued WeChat `plannedCommands`; explicit real-draft requests fail closed until credential/IP whitelist health gates are ready | Uses `trendforge-adapter-contract`; real draft creation remains gated by explicit approval, credentials, and IP whitelist readiness. |
 | 6 | XHS draft maps to the `xhs-browser-draft-setup` skill workflow | done | Dry-run publish results and run events include queued XHS `plannedCommands`; explicit real-draft requests fail closed until Hermes/bridge/extension/login health gates are ready | Uses `trendforge-adapter-contract`; real draft save remains gated by explicit approval, Hermes/bridge/extension/login health. |
 | 7 | CLI/API can query run history, items, and drafts | done | CLI and API acceptance tests run AIHot/RSS pipelines with stable run ids and committed fixtures via `--query-file`, then read back runs, events, items, and drafts through public surfaces | Makes local operation inspectable; `TRENDFORGE_RUNS_DIR` isolates test and experiment history. |
-| 8 | Browser workbench begins after the pipeline is inspectable | planned | `apps/web` exposes the first useful local workflow backed by existing API/run state | Do not start before earlier slices are usable. |
+| 8 | Source defaults distinguish collection from original text acquisition | done | Public source configuration exposes `defaultCollectorOrder` for AIHot/RSSHub collection and `defaultFullTextAcquisitionOrder` for BrowserAct/MediaCrawler original-text completion | Prevents BrowserAct and MediaCrawler from being treated as normal subscription sources. |
+| 9 | Browser workbench begins after the pipeline is inspectable | planned | `apps/web` exposes the first useful local workflow backed by existing API/run state | Do not start before earlier slices are usable. |
 
 ## Per-Slice Definition of Done
 
