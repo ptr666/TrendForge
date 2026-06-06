@@ -44,9 +44,9 @@ export function createDefaultTextProvider(): TextProvider {
   return {
     async summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary> {
       const sourceText = compactText(article.fullText ?? article.failureReason ?? "No full text available.", 1200);
-      const firstSentence = sourceText.split(/[。！？.!?]/).find((part) => part.trim().length > 0)?.trim() ?? sourceText;
+      const firstSentence = sourceText.split(/[。！？?!]/).find((part) => part.trim().length > 0)?.trim() ?? sourceText;
       const keyPoints = sourceText
-        .split(/[。！？.!?\n]/)
+        .split(/[。！？?!\n]/)
         .map((part) => part.trim())
         .filter((part) => part.length > 0)
         .slice(0, 3);
@@ -144,7 +144,7 @@ export function createOpenAICompatibleTextProvider(options: OpenAICompatibleOpti
           messages: [
             {
               role: "system",
-              content: "你是中文 AI 热点内容编辑。请把来源文本总结为适合公众号和小红书二次创作的中文素材。必须返回严格 JSON，字段为 title、summary、angle、keyPoints、riskNotes；除专有名词外，所有字段内容都使用简体中文。"
+              content: "你是中文 AI 热点内容编辑。请把来源原文总结为适合公众号和小红书二次创作的中文素材。必须返回严格 JSON，字段为 title、summary、angle、keyPoints、riskNotes；除专有名词外，所有字段内容都使用简体中文。"
             },
             {
               role: "user",
@@ -210,7 +210,7 @@ export function createOpenAICompatibleSelector(options: OpenAICompatibleOptions)
           messages: [
             {
               role: "system",
-              content: "你是中文 AI 热点选题编辑。请根据来源摘要判断是否值得进入内容生产。返回严格 JSON，字段为 score(0-100)、reason、angle、tags。reason 和 angle 必须使用简体中文。优先选择：新近、可信、信息密度高、适合公众号/小红书讲清楚的 AI 产品、模型、研究、产业动态。"
+              content: "你是中文 AI 热点选题编辑。请根据来源摘要判断是否值得进入内容生产。返回严格 JSON，字段为 score(0-100)、reason、angle、tags。reason 和 angle 必须使用简体中文。优先选择：新近、可信、信息密度高、适合公众号或小红书讲清楚的 AI 产品、模型、研究和产业动态。"
             },
             {
               role: "user",

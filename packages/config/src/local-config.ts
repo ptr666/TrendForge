@@ -1,0 +1,136 @@
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+export interface ModelConfig {
+  enabled: boolean;
+  provider: "deterministic" | "openai-compatible";
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}
+
+export interface WechatConfig {
+  enabled: boolean;
+  appId: string;
+  appSecret?: string;
+}
+
+export interface PublicModelConfig {
+  enabled: boolean;
+  provider: ModelConfig["provider"];
+  baseUrl: string;
+  model: string;
+  keyConfigured: boolean;
+  keyPreview?: string;
+}
+
+export interface PublicWechatConfig {
+  enabled: boolean;
+  appId: string;
+  secretConfigured: boolean;
+  secretPreview?: string;
+}
+
+export const defaultModelConfig: ModelConfig = {
+  enabled: false,
+  provider: "deterministic",
+  baseUrl: "https://api.deepseek.com",
+  model: "deepseek-v4-flash"
+};
+
+export const defaultWechatConfig: WechatConfig = {
+  enabled: false,
+  appId: ""
+};
+
+function defaultConfigDir(): string {
+  return process.env.TRENDFORGE_CONFIG_DIR
+    ? path.resolve(process.env.TRENDFORGE_CONFIG_DIR)
+    : path.resolve("workspace", "config");
+}
+
+function maskSecret(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.length <= 4 ? "****" : `${"*".repeat(Math.max(4, value.length - 4))}${value.slice(-4)}`;
+}
+
+function modelConfigPath(configDir = defaultConfigDir()): string {
+  return path.join(configDir, "model.json");
+}
+
+function wechatConfigPath(configDir = defaultConfigDir()): string {
+  return path.join(configDir, "wechat.json");
+}
+
+function normalizeModelConfig(value: unknown): ModelConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<ModelConfig> : {};
+  const provider = candidate.provider === "openai-compatible" ? "openai-compatible" : "deterministic";
+  return {
+    enabled: candidate.enabled === true,
+    provider,
+    baseUrl: typeof candidate.baseUrl === "string" && candidate.baseUrl.trim() ? candidate.baseUrl.trim() : defaultModelConfig.baseUrl,
+    model: typeof candidate.model === "string" && candidate.model.trim() ? candidate.model.trim() : defaultModelConfig.model,
+    apiKey: typeof candidate.apiKey === "string" && candidate.apiKey.trim() ? candidate.apiKey.trim() : undefined
+  };
+}
+
+function normalizeWechatConfig(value: unknown): WechatConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<WechatConfig> : {};
+  return {
+    enabled: candidate.enabled === true,
+    appId: typeof candidate.appId === "string" ? candidate.appId.trim() : "",
+    appSecret: typeof candidate.appSecret === "string" && candidate.appSecret.trim() ? candidate.appSecret.trim() : undefined
+  };
+}
+
+export function toPublicModelConfig(config: ModelConfig): PublicModelConfig {
+  return {
+    enabled: config.enabled,
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    keyConfigured: Boolean(config.apiKey),
+    keyPreview: maskSecret(config.apiKey)
+  };
+}
+
+export function toPublicWechatConfig(config: WechatConfig): PublicWechatConfig {
+  return {
+    enabled: config.enabled,
+    appId: config.appId,
+    secretConfigured: Boolean(config.appSecret),
+    secretPreview: maskSecret(config.appSecret)
+  };
+}
+
+export async function readModelConfig(configDir?: string): Promise<ModelConfig> {
+  try {
+    return normalizeModelConfig(JSON.parse(await readFile(modelConfigPath(configDir), "utf8")) as unknown);
+  } catch {
+    return defaultModelConfig;
+  }
+}
+
+export async function writeModelConfig(config: ModelConfig, configDir?: string): Promise<ModelConfig> {
+  const normalized = normalizeModelConfig(config);
+  // Local provider credentials are intentionally stored outside tracked source files.
+  await mkdir(path.dirname(modelConfigPath(configDir)), { recursive: true });
+  await writeFile(modelConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+}
+
+export async function readWechatConfig(configDir?: string): Promise<WechatConfig> {
+  try {
+    return normalizeWechatConfig(JSON.parse(await readFile(wechatConfigPath(configDir), "utf8")) as unknown);
+  } catch {
+    return defaultWechatConfig;
+  }
+}
+
+export async function writeWechatConfig(config: WechatConfig, configDir?: string): Promise<WechatConfig> {
+  const normalized = normalizeWechatConfig(config);
+  // Keep appSecret local; API responses only expose masked previews.
+  await mkdir(path.dirname(wechatConfigPath(configDir)), { recursive: true });
+  await writeFile(wechatConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+}

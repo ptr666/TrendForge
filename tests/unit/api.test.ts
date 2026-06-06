@@ -45,10 +45,11 @@ async function waitForHealth(baseUrl: string): Promise<void> {
 
 test("API can run RSS pipeline and read back run history artifacts", async () => {
   const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-api-runs-"));
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-api-config-"));
   const port = 4900 + Math.floor(Math.random() * 1000);
   const baseUrl = `http://127.0.0.1:${port}`;
   const child = spawn(process.execPath, [apiPath], {
-    env: { ...process.env, TRENDFORGE_PORT: String(port), TRENDFORGE_RUNS_DIR: runsDir },
+    env: { ...process.env, TRENDFORGE_PORT: String(port), TRENDFORGE_RUNS_DIR: runsDir, TRENDFORGE_CONFIG_DIR: configDir },
     stdio: ["ignore", "pipe", "pipe"]
   });
 
@@ -81,6 +82,26 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     const items = await requestJson(`${baseUrl}/items`) as { items?: Array<{ collectorAdapter: string }> };
     const drafts = await requestJson(`${baseUrl}/drafts`) as { drafts?: Array<{ platform: string }> };
     const providers = await requestJson(`${baseUrl}/providers`) as { text?: { keyConfigured: boolean; keyPreview?: string } };
+    const savedModel = await requestJson(`${baseUrl}/config/model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        provider: "openai-compatible",
+        baseUrl: "https://models.example.test/v1",
+        model: "summary-model",
+        apiKey: "fixture-model-key"
+      })
+    }) as { keyConfigured?: boolean; keyPreview?: string; apiKey?: string };
+    const savedWechat = await requestJson(`${baseUrl}/config/wechat`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        appId: "wx-test-app",
+        appSecret: "fixture-wechat-key"
+      })
+    }) as { secretConfigured?: boolean; secretPreview?: string; appSecret?: string };
     const subscriptions = await requestJson(`${baseUrl}/subscriptions`) as { subscriptions?: Array<{ id: string }> };
     const rssValidation = await requestJson(`${baseUrl}/subscriptions/validate`, {
       method: "POST",
@@ -108,9 +129,17 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     const firstDraftArtifact = run.drafts?.find((draft) => draft.artifactPath)?.artifactPath;
     assert.ok(firstDraftArtifact);
     assert.match(await readFile(firstDraftArtifact, "utf8"), /platform:/);
+    const artifact = await requestJson(`${baseUrl}/artifacts?path=${encodeURIComponent(firstDraftArtifact)}`) as { content?: string };
+    assert.match(artifact.content ?? "", /platform:/);
     assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
     assert.equal(providers.text?.keyConfigured, false);
+    assert.equal(savedModel.keyConfigured, true);
+    assert.match(savedModel.keyPreview ?? "", /^\*+-key$/);
+    assert.equal(savedModel.apiKey, undefined);
+    assert.equal(savedWechat.secretConfigured, true);
+    assert.match(savedWechat.secretPreview ?? "", /^\*+-key$/);
+    assert.equal(savedWechat.appSecret, undefined);
     assert.ok(subscriptions.subscriptions?.some((subscription) => subscription.id === "aihot-skill"));
     assert.equal(rssValidation.ok, true);
     assert.equal(rssValidation.count, 2);
@@ -121,5 +150,6 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     child.kill();
     await new Promise((resolve) => child.once("exit", resolve));
     await rm(runsDir, { recursive: true, force: true });
+    await rm(configDir, { recursive: true, force: true });
   }
 });

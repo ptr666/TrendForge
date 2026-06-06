@@ -1,11 +1,20 @@
 import http from "node:http";
-import { access } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
 import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
+import {
+  readModelConfig,
+  readWechatConfig,
+  toPublicModelConfig,
+  toPublicWechatConfig,
+  writeModelConfig,
+  writeWechatConfig
+} from "../../../packages/config/src/local-config.js";
 import { readSubscriptions, writeSubscriptions } from "../../../packages/config/src/subscriptions.js";
 import { MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
 import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
+import { requestWechatAccessToken } from "../../../packages/publishers/src/wechat.js";
 import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../../packages/providers/src/index.js";
 import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
@@ -13,7 +22,6 @@ import type { CandidateSelection, Platform, SourceItem, VerifiedArticle } from "
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
-const pipeline = createDefaultPipeline({ store, ...createRuntimeProviders() });
 const publishers = createPlannedPublishers();
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -42,6 +50,7 @@ function maskSecret(value: string | undefined): string | undefined {
 }
 
 function providerState() {
+  const envKeyConfigured = Boolean(process.env.TRENDFORGE_MODEL_API_KEY);
   return {
     browserAct: {
       enabled: process.env.TRENDFORGE_ENABLE_BROWSERACT === "1",
@@ -51,7 +60,7 @@ function providerState() {
       provider: process.env.TRENDFORGE_TEXT_PROVIDER ?? "deterministic",
       baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? "https://api.openai.com/v1",
       model: process.env.TRENDFORGE_MODEL_NAME ?? "gpt-4.1-mini",
-      keyConfigured: Boolean(process.env.TRENDFORGE_MODEL_API_KEY),
+      keyConfigured: envKeyConfigured,
       keyPreview: maskSecret(process.env.TRENDFORGE_MODEL_API_KEY)
     },
     mediaCrawler: mediaCrawlerDefaults
@@ -79,6 +88,14 @@ async function exists(targetPath: string): Promise<boolean> {
   }
 }
 
+function workspaceRunPath(rawPath: string): string | undefined {
+  const normalized = rawPath.replace(/\\/g, "/");
+  if (!normalized.startsWith("workspace/runs/")) return undefined;
+  const resolved = path.resolve(normalized);
+  const runsRoot = path.resolve("workspace", "runs");
+  return resolved.startsWith(runsRoot + path.sep) ? resolved : undefined;
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
   applyCors(res);
@@ -95,7 +112,79 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && req.url === "/providers") {
-    send(res, 200, providerState());
+    const modelConfig = await readModelConfig();
+    send(res, 200, {
+      ...providerState(),
+      localModel: toPublicModelConfig(modelConfig),
+      wechat: toPublicWechatConfig(await readWechatConfig())
+    });
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/config/model") {
+    send(res, 200, toPublicModelConfig(await readModelConfig()));
+    return;
+  }
+
+  if (req.method === "PUT" && req.url === "/config/model") {
+    const body = await readJsonBody(req);
+    const existing = await readModelConfig();
+    const apiKey = typeof body.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey.trim()
+      : body.keepExistingKey === true ? existing.apiKey : undefined;
+    const saved = await writeModelConfig({
+      enabled: body.enabled === true,
+      provider: body.provider === "openai-compatible" ? "openai-compatible" : "deterministic",
+      baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : existing.baseUrl,
+      model: typeof body.model === "string" ? body.model : existing.model,
+      apiKey
+    });
+    send(res, 200, toPublicModelConfig(saved));
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/config/wechat") {
+    send(res, 200, toPublicWechatConfig(await readWechatConfig()));
+    return;
+  }
+
+  if (req.method === "PUT" && req.url === "/config/wechat") {
+    const body = await readJsonBody(req);
+    const existing = await readWechatConfig();
+    const appSecret = typeof body.appSecret === "string" && body.appSecret.trim()
+      ? body.appSecret.trim()
+      : body.keepExistingSecret === true ? existing.appSecret : undefined;
+    const saved = await writeWechatConfig({
+      enabled: body.enabled === true,
+      appId: typeof body.appId === "string" ? body.appId : existing.appId,
+      appSecret
+    });
+    send(res, 200, toPublicWechatConfig(saved));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/wechat") {
+    const config = await readWechatConfig();
+    if (!config.enabled || !config.appId || !config.appSecret) {
+      send(res, 200, {
+        ok: false,
+        failureReason: "WeChat config requires enabled=true, appId, and appSecret."
+      });
+      return;
+    }
+    send(res, 200, await requestWechatAccessToken(config.appId, config.appSecret));
+    return;
+  }
+
+  if (req.method === "GET" && req.url?.startsWith("/artifacts?")) {
+    const url = new URL(req.url, `http://127.0.0.1:${port}`);
+    const artifactPath = workspaceRunPath(url.searchParams.get("path") ?? "");
+    if (!artifactPath) {
+      send(res, 400, { error: "artifact_path_not_allowed" });
+      return;
+    }
+    const content = await readFile(artifactPath, "utf8");
+    send(res, 200, { path: url.searchParams.get("path"), content });
     return;
   }
 
@@ -174,6 +263,7 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && req.url === "/verify/model") {
+    const modelConfig = await readModelConfig();
     const article: VerifiedArticle = {
       sourceItemId: "verify-model",
       status: "verified",
@@ -189,9 +279,9 @@ const server = http.createServer(async (req, res) => {
       tags: ["verification"]
     };
     const summary = await createOpenAICompatibleTextProvider({
-      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? "https://api.deepseek.com",
-      apiKey: process.env.TRENDFORGE_MODEL_API_KEY,
-      model: process.env.TRENDFORGE_MODEL_NAME ?? "deepseek-v4-flash"
+      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? modelConfig.baseUrl,
+      apiKey: process.env.TRENDFORGE_MODEL_API_KEY ?? modelConfig.apiKey,
+      model: process.env.TRENDFORGE_MODEL_NAME ?? modelConfig.model
     }).summarize(article, selection);
     send(res, 200, { ok: true, summary });
     return;
@@ -199,6 +289,7 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/pipeline/run") {
     const body = await readJsonBody(req);
+    const pipeline = createDefaultPipeline({ store, ...createRuntimeProviders(process.env, await readModelConfig()) });
     const requestedPlatforms = Array.isArray(body.requestedPlatforms)
       ? body.requestedPlatforms.filter((platform): platform is Platform => ["review", "wechat", "xhs"].includes(String(platform)))
       : ["review", "wechat", "xhs"] satisfies Platform[];

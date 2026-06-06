@@ -1,6 +1,8 @@
-# Vendor Projects
+# Vendor Projects And Open-Source References
 
-TrendForge uses external projects through adapters. They should be installed as Git submodules under `vendor/`.
+TrendForge uses external projects through adapters, local workflow skills, or planned command handoffs. Heavy third-party code should be installed as Git submodules under `vendor/` instead of copied into TrendForge packages.
+
+This page is also the canonical list of open-source projects and external workflow packages referenced by TrendForge.
 
 ## BrowserAct
 
