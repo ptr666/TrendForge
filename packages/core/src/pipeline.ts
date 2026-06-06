@@ -1,6 +1,6 @@
 import { createDefaultDraftGenerator } from "../../generator/src/index.js";
 import { createDefaultMediaComposer } from "../../media/src/index.js";
-import { createNoopPublishers } from "../../publishers/src/index.js";
+import { createPlannedPublishers } from "../../publishers/src/index.js";
 import { createDefaultTextProvider } from "../../providers/src/index.js";
 import { createDefaultSelector } from "../../selector/src/index.js";
 import { createDefaultSourceAdapters } from "../../sources/src/adapters.js";
@@ -26,7 +26,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
   const generator = createDefaultDraftGenerator();
   const textProvider = createDefaultTextProvider();
   const media = createDefaultMediaComposer();
-  const publishers = createNoopPublishers();
+  const publishers = createPlannedPublishers();
 
   return {
     async run(request: PipelineRunRequest): Promise<PipelineRunResult> {
@@ -162,20 +162,14 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       for (const draft of drafts) {
         const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
         if (publisher) {
-          const publishResult = request.dryRunPublish === false || request.allowRealDraft === true
-            ? await publisher.publishDraft(draft)
-            : {
-                draftId: draft.id,
-                platform: publisher.platform,
-                status: "skipped" as const,
-                message: "Dry-run publish. Real publishing requires dryRunPublish=false."
-              };
+          const publishResult = await publisher.publishDraft(draft);
           publishResults.push(publishResult);
           await deps.store.appendEvent(request.runId, {
             stage: "publish",
             draftId: draft.id,
             platform: publisher.platform,
-            status: publishResult.status
+            status: publishResult.status,
+            verificationSignal: publishResult.verificationSignal
           });
         }
       }

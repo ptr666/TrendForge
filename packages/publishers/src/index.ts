@@ -41,6 +41,8 @@ class PlannedPublisher implements PublisherAdapter {
   }
 }
 
-export function createNoopPublishers(): PublisherAdapter[] {
+export function createPlannedPublishers(): PublisherAdapter[] {
   return [new PlannedPublisher("wechat"), new PlannedPublisher("xhs")];
 }
+
+export const createNoopPublishers = createPlannedPublishers;

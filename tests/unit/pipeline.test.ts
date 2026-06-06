@@ -32,10 +32,14 @@ test("pipeline runs from AI HOT source to platform draft plans and events", asyn
   assert.ok(result.assets.some((asset) => asset.type === "cover"));
   assert.ok(result.assets.some((asset) => asset.type === "xhs_image"));
   assert.ok(result.assets.every((asset) => typeof asset.prompt === "string" && asset.prompt.length > 0));
-  assert.ok(result.publishResults.every((publishResult) => publishResult.status === "skipped"));
+  assert.ok(result.publishResults.every((publishResult) => publishResult.status === "queued"));
+  assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.verificationSignal?.includes("state/published.json")));
+  assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.verificationSignal?.includes("draft-saved")));
 
   const events = await store.readEvents("run-aihot");
   assert.ok(events.some((event) => event.stage === "summarize"));
+  assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "queued"));
+  assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && event.status === "queued"));
   assert.ok(events.some((event) => event.stage === "finished"));
 
   await rm(rootDir, { recursive: true, force: true });

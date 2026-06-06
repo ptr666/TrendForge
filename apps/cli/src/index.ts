@@ -95,9 +95,9 @@ async function main(): Promise<void> {
   }
 
   if (command === "publishers") {
-    const { createNoopPublishers } = await import("../../../packages/publishers/src/index.js");
+    const { createPlannedPublishers } = await import("../../../packages/publishers/src/index.js");
     const health = [];
-    for (const publisher of createNoopPublishers()) {
+    for (const publisher of createPlannedPublishers()) {
       health.push({ platform: publisher.platform, ...(await publisher.healthcheck()) });
     }
     console.log(JSON.stringify({ publishers: health }, null, 2));

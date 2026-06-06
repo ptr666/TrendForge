@@ -2,14 +2,14 @@ import http from "node:http";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
 import { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import { readSubscriptions } from "../../../packages/config/src/subscriptions.js";
-import { createNoopPublishers } from "../../../packages/publishers/src/index.js";
+import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { Platform } from "../../../packages/core/src/types.js";
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
 const pipeline = createDefaultPipeline({ store });
-const publishers = createNoopPublishers();
+const publishers = createPlannedPublishers();
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   const chunks = [];
