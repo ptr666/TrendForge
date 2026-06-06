@@ -1,6 +1,7 @@
 import http from "node:http";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
 import { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
+import { readSubscriptions } from "../../../packages/config/src/subscriptions.js";
 import { createNoopPublishers } from "../../../packages/publishers/src/index.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { Platform } from "../../../packages/core/src/types.js";
@@ -85,7 +86,8 @@ const server = http.createServer(async (req, res) => {
     send(res, 200, {
       defaultCollectorOrder,
       aiHotDefaults,
-      mediaCrawlerDefaults
+      mediaCrawlerDefaults,
+      subscriptions: await readSubscriptions()
     });
     return;
   }

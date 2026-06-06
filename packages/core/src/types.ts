@@ -77,6 +77,16 @@ export interface PublishResult {
   verificationSignal?: string;
 }
 
+export interface SourceSubscription {
+  id: string;
+  title: string;
+  type: "aihot" | "rss" | "rsshub";
+  source: string;
+  enabled: boolean;
+  priority?: number;
+  tags?: string[];
+}
+
 export interface PipelineRunRequest {
   runId: string;
   query: string;

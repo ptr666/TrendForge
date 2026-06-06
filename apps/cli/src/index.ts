@@ -69,7 +69,28 @@ async function main(): Promise<void> {
 
   if (command === "sources") {
     const { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } = await import("../../../packages/config/src/index.js");
-    console.log(JSON.stringify({ defaultCollectorOrder, aiHotDefaults, mediaCrawlerDefaults }, null, 2));
+    const { readSubscriptions } = await import("../../../packages/config/src/subscriptions.js");
+    console.log(JSON.stringify({ defaultCollectorOrder, aiHotDefaults, mediaCrawlerDefaults, subscriptions: await readSubscriptions() }, null, 2));
+    return;
+  }
+
+  if (command === "run-subscription") {
+    const subscriptionId = readOption("--subscription-id");
+    if (!subscriptionId) throw new Error("Missing --subscription-id for run-subscription.");
+    const { readSubscriptions } = await import("../../../packages/config/src/subscriptions.js");
+    const subscription = (await readSubscriptions()).find((candidate) => candidate.id === subscriptionId);
+    if (!subscription) throw new Error(`Subscription not found: ${subscriptionId}`);
+    if (!subscription.enabled) throw new Error(`Subscription is disabled: ${subscriptionId}`);
+    const result = await pipeline.run({
+      runId: `run-${Date.now()}`,
+      query: subscription.source,
+      requestedPlatforms: readPlatforms(),
+      allowBrowserFallback: !hasFlag("--no-browser-fallback"),
+      allowMediaCrawlerFallback: hasFlag("--allow-mediacrawler"),
+      allowRealDraft: hasFlag("--real-draft"),
+      dryRunPublish: !hasFlag("--real-publish")
+    });
+    console.log(JSON.stringify(result, null, 2));
     return;
   }
 

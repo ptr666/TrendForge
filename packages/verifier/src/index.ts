@@ -21,7 +21,7 @@ function methodFor(item: SourceItem): VerifiedArticle["method"] {
 
 export function createDefaultVerifier(): Verifier {
   async function verify(item: SourceItem): Promise<VerifiedArticle> {
-    if (item.rawText && item.rawText.trim().length > 0) {
+    if (item.rawText && item.rawText.trim().length > 0 && !item.url.startsWith("http://") && !item.url.startsWith("https://")) {
       return {
         sourceItemId: item.id,
         status: item.url === "about:blank" ? "partial" : "verified",
@@ -40,7 +40,7 @@ export function createDefaultVerifier(): Verifier {
       status: item.collectorAdapter === "browseract" || item.collectorAdapter === "mediacrawler" ? "pending" : "partial",
       method: methodFor(item),
       evidenceUrl: item.url,
-      fullText: item.summary,
+      fullText: item.rawText ?? item.summary,
       failureReason: item.metadata?.reason
         ? String(item.metadata.reason)
         : "No fetchable URL or raw text available yet."

@@ -106,9 +106,10 @@ For pure documentation changes, business tests are not required. Verify links, r
 The backend-first workflow is available through API and CLI surfaces:
 
 - `trendforge run` runs the full local pipeline.
+- `trendforge run-subscription --subscription-id <id>` runs an enabled local source subscription.
 - `trendforge runs` lists saved pipeline runs.
 - `trendforge events --run-id <id>` reads stage events for a run.
-- `trendforge sources` prints source adapter defaults, including AI HOT priority.
+- `trendforge sources` prints source adapter defaults, AI HOT priority, and local subscriptions.
 - `trendforge publishers` prints publisher adapter health.
 
 The API exposes matching run inspection surfaces:

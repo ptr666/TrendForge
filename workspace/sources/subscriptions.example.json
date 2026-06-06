@@ -1,0 +1,22 @@
+{
+  "subscriptions": [
+    {
+      "id": "aihot-skill",
+      "title": "AI HOT Skill",
+      "type": "aihot",
+      "source": "https://aihot.virxact.com/aihot-skill/",
+      "enabled": true,
+      "priority": 1,
+      "tags": ["aihot", "skill"]
+    },
+    {
+      "id": "example-rss",
+      "title": "Example RSS",
+      "type": "rss",
+      "source": "https://example.com/feed.xml",
+      "enabled": false,
+      "priority": 10,
+      "tags": ["example"]
+    }
+  ]
+}

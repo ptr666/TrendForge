@@ -6,6 +6,7 @@ dist/
 workspace/runs/*.json
 workspace/runs/*.jsonl
 workspace/sources/*
+!workspace/sources/*.example.json
 workspace/articles/*
 workspace/drafts/*
 workspace/assets/*
