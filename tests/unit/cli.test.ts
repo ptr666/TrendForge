@@ -8,17 +8,7 @@ import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 const cliPath = path.resolve("dist", "apps", "cli", "src", "index.js");
-const rss = `<?xml version="1.0"?>
-<rss version="2.0">
-  <channel>
-    <item>
-      <title>AI workflow from CLI</title>
-      <link>https://example.com/cli-ai-workflow</link>
-      <description>Brief signal from a CLI RSS run.</description>
-      <guid>cli-ai-workflow</guid>
-    </item>
-  </channel>
-</rss>`;
+const rssFixturePath = path.resolve("tests", "fixtures", "rss", "ai-workflow.xml");
 
 async function runCli(args: string[], runsDir: string): Promise<unknown> {
   const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
@@ -32,7 +22,7 @@ test("CLI can run RSS pipeline and read back run history events", async () => {
   const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-cli-runs-"));
 
   try {
-    const run = await runCli(["run", "--run-id", "cli-rss-e2e", "--query", rss], runsDir) as {
+    const run = await runCli(["run", "--run-id", "cli-rss-e2e", "--query-file", rssFixturePath], runsDir) as {
       runId?: string;
       drafts?: Array<{ platform: string }>;
       publishResults?: Array<{ platform: string; status: string }>;

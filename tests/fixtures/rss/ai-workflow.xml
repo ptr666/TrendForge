@@ -1,0 +1,11 @@
+<?xml version="1.0"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>AI workflow from CLI fixture</title>
+      <link>https://example.com/cli-ai-workflow-fixture</link>
+      <description>Brief signal from a committed RSS fixture.</description>
+      <guid>cli-ai-workflow-fixture</guid>
+    </item>
+  </channel>
+</rss>

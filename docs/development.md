@@ -113,6 +113,7 @@ The backend-first workflow is available through API and CLI surfaces:
 
 - `trendforge run` runs the full local pipeline.
 - `trendforge run --run-id <id>` runs the pipeline with a stable id for reproducible run history checks.
+- `trendforge run --run-id <id> --query-file tests/fixtures/rss/ai-workflow.xml` runs the committed RSS fixture through the local end-to-end pipeline.
 - `trendforge run-subscription --subscription-id <id>` runs an enabled local source subscription.
 - `trendforge runs` lists saved pipeline runs.
 - `trendforge events --run-id <id>` reads stage events for a run.
