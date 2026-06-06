@@ -195,7 +195,8 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             draftId: draft.id,
             platform: publisher.platform,
             status: publishResult.status,
-            verificationSignal: publishResult.verificationSignal
+            verificationSignal: publishResult.verificationSignal,
+            plannedCommands: publishResult.plannedCommands
           });
         }
       }

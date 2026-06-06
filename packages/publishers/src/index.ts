@@ -1,4 +1,52 @@
-import type { PlatformDraft, PublisherAdapter, PublishResult } from "../../core/src/types.js";
+import type { PlannedCommand, PlatformDraft, PublisherAdapter, PublishResult } from "../../core/src/types.js";
+
+function wechatCommands(draft: PlatformDraft): PlannedCommand[] {
+  return [
+    {
+      name: "wechat-preview",
+      command: ["npm", "run", "preview", "--", "--draft-id", draft.id],
+      reason: "Render the WeChat article preview before official API draft creation.",
+      successSignal: "output/article-final.html exists"
+    },
+    {
+      name: "wechat-check",
+      command: ["npm", "run", "check", "--", "--draft-id", draft.id],
+      reason: "Check credentials, IP whitelist, article fields, and cover readiness.",
+      successSignal: "workflow check passes"
+    },
+    {
+      name: "wechat-create-draft",
+      command: ["node", "wechat-final.js", "--draft-id", draft.id],
+      reason: "Create an official-account draft only after explicit realDraft approval.",
+      requiresExplicitApproval: true,
+      successSignal: "state/published.json contains the created draft id"
+    }
+  ];
+}
+
+function xhsCommands(draft: PlatformDraft): PlannedCommand[] {
+  return [
+    {
+      name: "xhs-check-login",
+      command: ["uv", "run", "python", "scripts/cli.py", "check-login"],
+      reason: "Confirm Hermes bridge, Chrome extension, and Xiaohongshu login state.",
+      successSignal: "check-login reports authenticated browser state"
+    },
+    {
+      name: "xhs-fill-publish",
+      command: ["uv", "run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id],
+      reason: "Fill title, body, tags, and image assets into the browser publish page.",
+      successSignal: "page visibly contains title, body, and uploaded images"
+    },
+    {
+      name: "xhs-save-draft",
+      command: ["uv", "run", "python", "scripts/cli.py", "save-draft"],
+      reason: "Save the browser page into the Xiaohongshu draft box after explicit realDraft approval.",
+      requiresExplicitApproval: true,
+      successSignal: "browser page shows the draft-saved signal"
+    }
+  ];
+}
 
 class PlannedPublisher implements PublisherAdapter {
   constructor(public readonly platform: "wechat" | "xhs") {}
@@ -32,7 +80,8 @@ class PlannedPublisher implements PublisherAdapter {
       platform: this.platform,
       status: "queued",
       message,
-      verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required"
+      verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required",
+      plannedCommands: this.platform === "wechat" ? wechatCommands(draft) : xhsCommands(draft)
     };
   }
 

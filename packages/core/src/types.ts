@@ -68,6 +68,14 @@ export interface MediaAsset {
   ratio?: string;
 }
 
+export interface PlannedCommand {
+  name: string;
+  command: string[];
+  reason: string;
+  requiresExplicitApproval?: boolean;
+  successSignal?: string;
+}
+
 export interface PublishResult {
   draftId: string;
   platform: Platform;
@@ -75,6 +83,7 @@ export interface PublishResult {
   externalId?: string;
   message?: string;
   verificationSignal?: string;
+  plannedCommands?: PlannedCommand[];
 }
 
 export interface SourceSubscription {

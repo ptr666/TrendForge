@@ -51,6 +51,10 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
     assert.ok(savedRun?.assets.some((asset) => asset.type === "xhs_image" && asset.ratio === "3:4"));
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.status === "queued"));
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.status === "queued"));
+    assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "wechat"
+      && publishResult.plannedCommands?.some((command) => command.name === "wechat-create-draft")));
+    assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "xhs"
+      && publishResult.plannedCommands?.some((command) => command.name === "xhs-save-draft")));
 
     assert.ok(events.some((event) => event.stage === "collect" && event.adapter === "rsshub" && event.status === "finished"));
     assert.ok(events.some((event) => event.stage === "score"));
@@ -60,6 +64,8 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
     assert.ok(events.some((event) => event.stage === "compose_media"));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "queued"));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && event.status === "queued"));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && Array.isArray(event.plannedCommands)));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && Array.isArray(event.plannedCommands)));
     assert.ok(events.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
