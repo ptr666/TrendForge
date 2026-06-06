@@ -42,7 +42,8 @@ Current publishing workflow facts:
 
 - WeChat publishing enters through `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`, which manages the local Node workflow for article brief, Markdown, preview, check, AI/local cover strategy, official API image upload, draft creation, and publish state.
 - Xiaohongshu publishing enters through `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`, a share-safe setup and troubleshooting skill around `autoclaw-cc/xiaohongshu-skills`, Hermes, browser bridge, Chrome extension, login checks, page fill, draft save, and optional publish commands.
-- Publish results and run events should expose structured `plannedCommands` for dry-run draft creation, while real draft creation remains behind explicit approval and health gates.
+- Publish results and run events should expose structured `plannedCommands` and a local `artifactPath` handoff file for dry-run draft creation, while real draft creation remains behind explicit approval and health gates.
+- Publisher handoff artifacts are JSON files under `workspace/runs/<runId>/publisher-handoffs/` by default. They contain the workflow name, platform draft, planned commands, and verification signal for the WeChat or XHS skill to consume.
 - `--real-draft` or `allowRealDraft=true` requests real draft creation, but publisher adapters must still fail closed when workflow health gates are not ready.
 
 Current source workflow facts:

@@ -20,6 +20,7 @@ export interface PipelineDeps {
   store: RunStore;
   sourceAdapters?: SourceAdapter[];
   fullTextProvider?: FullTextProvider;
+  publisherHandoffDir?: string;
 }
 
 function createPlannedFullTextProvider(): FullTextProvider {
@@ -33,6 +34,10 @@ function createPlannedFullTextProvider(): FullTextProvider {
       };
     }
   };
+}
+
+function defaultHandoffDir(runId: string, baseDir?: string): string {
+  return baseDir ?? `workspace/runs/${runId}/publisher-handoffs`;
 }
 
 export function createDefaultPipeline(deps: PipelineDeps) {
@@ -188,7 +193,10 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       for (const draft of drafts) {
         const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
         if (publisher) {
-          const publishResult = await publisher.publishDraft(draft, { allowRealDraft: request.allowRealDraft === true });
+          const publishResult = await publisher.publishDraft(draft, {
+            allowRealDraft: request.allowRealDraft === true,
+            handoffDir: defaultHandoffDir(request.runId, deps.publisherHandoffDir)
+          });
           publishResults.push(publishResult);
           await deps.store.appendEvent(request.runId, {
             stage: "publish",
@@ -196,6 +204,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             platform: publisher.platform,
             status: publishResult.status,
             verificationSignal: publishResult.verificationSignal,
+            artifactPath: publishResult.artifactPath,
             plannedCommands: publishResult.plannedCommands
           });
         }

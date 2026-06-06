@@ -81,6 +81,7 @@ export interface PublishResult {
   platform: Platform;
   status: "queued" | "success" | "failed" | "skipped";
   externalId?: string;
+  artifactPath?: string;
   message?: string;
   verificationSignal?: string;
   plannedCommands?: PlannedCommand[];
@@ -169,7 +170,7 @@ export interface PublisherAdapter {
   platform: Exclude<Platform, "review">;
   healthcheck(): Promise<{ ok: boolean; message?: string }>;
   preview(draft: PlatformDraft): Promise<{ ok: boolean; path?: string; message?: string }>;
-  publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean }): Promise<PublishResult>;
+  publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean; handoffDir?: string }): Promise<PublishResult>;
   readLastResult(): Promise<PublishResult | undefined>;
 }
 

@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import type { PlannedCommand, PlatformDraft, PublisherAdapter, PublishResult } from "../../core/src/types.js";
 
 function wechatCommands(draft: PlatformDraft): PlannedCommand[] {
@@ -48,6 +50,31 @@ function xhsCommands(draft: PlatformDraft): PlannedCommand[] {
   ];
 }
 
+function workflowName(platform: "wechat" | "xhs"): string {
+  return platform === "wechat" ? "wechat-official-account-workflow" : "xhs-browser-draft-setup";
+}
+
+async function writeHandoff(
+  platform: "wechat" | "xhs",
+  draft: PlatformDraft,
+  plannedCommands: PlannedCommand[],
+  handoffDir?: string
+): Promise<string | undefined> {
+  if (!handoffDir) return undefined;
+  await mkdir(handoffDir, { recursive: true });
+  const artifactPath = path.join(handoffDir, `${platform}-${draft.id}.json`);
+  await writeFile(artifactPath, JSON.stringify({
+    workflow: workflowName(platform),
+    platform,
+    draft,
+    plannedCommands,
+    verificationSignal: platform === "wechat"
+      ? "state/published.json and output/article-final.html required"
+      : "browser page draft-saved signal required"
+  }, null, 2), "utf8");
+  return artifactPath;
+}
+
 class PlannedPublisher implements PublisherAdapter {
   constructor(public readonly platform: "wechat" | "xhs") {}
 
@@ -71,13 +98,15 @@ class PlannedPublisher implements PublisherAdapter {
     };
   }
 
-  async publishDraft(draft: PlatformDraft, options: { allowRealDraft?: boolean } = {}): Promise<PublishResult> {
+  async publishDraft(draft: PlatformDraft, options: { allowRealDraft?: boolean; handoffDir?: string } = {}): Promise<PublishResult> {
     const plannedCommands = this.platform === "wechat" ? wechatCommands(draft) : xhsCommands(draft);
+    const artifactPath = await writeHandoff(this.platform, draft, plannedCommands, options.handoffDir);
     if (options.allowRealDraft === true) {
       return {
         draftId: draft.id,
         platform: this.platform,
         status: "failed",
+        artifactPath,
         message: this.platform === "wechat"
           ? "Real WeChat draft creation blocked: workflow health gate requires credentials and IP whitelist readiness."
           : "Real XHS draft save blocked: workflow health gate requires Hermes bridge, extension, and login readiness.",
@@ -93,6 +122,7 @@ class PlannedPublisher implements PublisherAdapter {
       draftId: draft.id,
       platform: this.platform,
       status: "queued",
+      artifactPath,
       message,
       verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required",
       plannedCommands

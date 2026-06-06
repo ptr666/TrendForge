@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createDefaultPipeline } from "../../packages/core/src/pipeline.js";
@@ -23,7 +23,7 @@ const rss = `<?xml version="1.0"?>
 test("RSS pipeline run can be read back with end-to-end draft evidence", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-e2e-"));
   const store = createRunStore({ rootDir });
-  const pipeline = createDefaultPipeline({ store });
+  const pipeline = createDefaultPipeline({ store, publisherHandoffDir: path.join(rootDir, "publisher-handoffs") });
 
   try {
     const result = await pipeline.run({
@@ -55,6 +55,14 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
       && publishResult.plannedCommands?.some((command) => command.name === "wechat-create-draft")));
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "xhs"
       && publishResult.plannedCommands?.some((command) => command.name === "xhs-save-draft")));
+    const wechatHandoff = savedRun?.publishResults.find((publishResult) => publishResult.platform === "wechat")?.artifactPath;
+    const xhsHandoff = savedRun?.publishResults.find((publishResult) => publishResult.platform === "xhs")?.artifactPath;
+    assert.ok(wechatHandoff);
+    assert.ok(xhsHandoff);
+    const wechatContent = JSON.parse(await readFile(wechatHandoff, "utf8")) as Record<string, unknown>;
+    const xhsContent = JSON.parse(await readFile(xhsHandoff, "utf8")) as Record<string, unknown>;
+    assert.equal(wechatContent.workflow, "wechat-official-account-workflow");
+    assert.equal(xhsContent.workflow, "xhs-browser-draft-setup");
 
     assert.ok(events.some((event) => event.stage === "collect" && event.adapter === "rsshub" && event.status === "finished"));
     assert.ok(events.some((event) => event.stage === "score"));
@@ -66,6 +74,8 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && event.status === "queued"));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && Array.isArray(event.plannedCommands)));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && Array.isArray(event.plannedCommands)));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && typeof event.artifactPath === "string"));
+    assert.ok(events.some((event) => event.stage === "publish" && event.platform === "xhs" && typeof event.artifactPath === "string"));
     assert.ok(events.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
