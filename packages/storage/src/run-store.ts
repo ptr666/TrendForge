@@ -7,7 +7,7 @@ export interface RunStoreOptions {
 }
 
 export function createRunStore(options: RunStoreOptions = {}): RunStore {
-  const rootDir = options.rootDir ?? path.resolve("workspace", "runs");
+  const rootDir = options.rootDir ?? process.env.TRENDFORGE_RUNS_DIR ?? path.resolve("workspace", "runs");
 
   return {
     async saveRun(result: PipelineRunResult): Promise<void> {

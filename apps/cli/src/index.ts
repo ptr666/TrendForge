@@ -46,6 +46,10 @@ function readQuery(): string {
   return readOption("--query") ?? (process.argv.slice(3).filter((arg) => !arg.startsWith("--")).join(" ") || "manual-run");
 }
 
+function readRunId(): string {
+  return readOption("--run-id") ?? `run-${Date.now()}`;
+}
+
 async function main(): Promise<void> {
   if (command === "help" || command === "--help" || command === "-h") {
     printHelp();
@@ -82,7 +86,7 @@ async function main(): Promise<void> {
     if (!subscription) throw new Error(`Subscription not found: ${subscriptionId}`);
     if (!subscription.enabled) throw new Error(`Subscription is disabled: ${subscriptionId}`);
     const result = await pipeline.run({
-      runId: `run-${Date.now()}`,
+      runId: readRunId(),
       query: subscription.source,
       requestedPlatforms: readPlatforms(),
       allowBrowserFallback: !hasFlag("--no-browser-fallback"),
@@ -106,7 +110,7 @@ async function main(): Promise<void> {
 
   if (["collect", "verify", "generate", "preview", "publish", "run"].includes(command)) {
     const result = await pipeline.run({
-      runId: `run-${Date.now()}`,
+      runId: readRunId(),
       query: readQuery(),
       requestedPlatforms: readPlatforms(),
       allowBrowserFallback: !hasFlag("--no-browser-fallback"),

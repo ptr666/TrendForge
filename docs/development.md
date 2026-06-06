@@ -110,6 +110,7 @@ For pure documentation changes, business tests are not required. Verify links, r
 The backend-first workflow is available through API and CLI surfaces:
 
 - `trendforge run` runs the full local pipeline.
+- `trendforge run --run-id <id>` runs the pipeline with a stable id for reproducible run history checks.
 - `trendforge run-subscription --subscription-id <id>` runs an enabled local source subscription.
 - `trendforge runs` lists saved pipeline runs.
 - `trendforge events --run-id <id>` reads stage events for a run.
@@ -126,3 +127,5 @@ The API exposes matching run inspection surfaces:
 - `GET /drafts`
 - `GET /sources`
 - `GET /publishers`
+
+Set `TRENDFORGE_RUNS_DIR=<path>` to isolate run history during tests, experiments, or scripted verification.
