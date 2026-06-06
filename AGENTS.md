@@ -1,88 +1,88 @@
 # Agent Instructions
 
-Behavioral guidelines to reduce common LLM coding mistakes. Merge with project-specific instructions as needed.
+这些规则用于减少 LLM 编码时常见的错误。需要时与项目专属规则合并执行。
 
-**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+**取舍：**这些规则偏向谨慎而不是速度。遇到非常简单的任务时，可以按实际情况判断。
 
-## 1. Think Before Coding
+## 1. 编码前先思考
 
-**Don't assume. Don't hide confusion. Surface tradeoffs.**
+**不要假设。不要隐藏困惑。把取舍说清楚。**
 
-Before implementing:
+实现前：
 
-- State your assumptions explicitly. If uncertain, ask.
-- If multiple interpretations exist, present them - don't pick silently.
-- If a simpler approach exists, say so. Push back when warranted.
-- If something is unclear, stop. Name what's confusing. Ask.
+- 明确说明你的假设。如果不确定，就提问。
+- 如果存在多种理解，把它们列出来，不要静默选择。
+- 如果有更简单的做法，直接说出来。必要时温和反推。
+- 如果需求不清楚，先停下，指出哪里不清楚，再问。
 
-## 2. Simplicity First
+## 2. 简单优先
 
-**Minimum code that solves the problem. Nothing speculative.**
+**用能解决问题的最少代码。不要做投机式扩展。**
 
-- No features beyond what was asked.
-- No abstractions for single-use code.
-- No "flexibility" or "configurability" that wasn't requested.
-- No error handling for impossible scenarios.
-- If you write 200 lines and it could be 50, rewrite it.
+- 不实现需求之外的功能。
+- 不为一次性代码抽象。
+- 不增加未被要求的“灵活性”或“可配置性”。
+- 不为不可能发生的场景写复杂错误处理。
+- 如果写了 200 行但 50 行能解决，就重写成 50 行。
 
-Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
+自检问题：资深工程师会不会觉得这过度设计？如果会，就简化。
 
-## 3. Surgical Changes
+## 3. 外科手术式修改
 
-**Touch only what you must. Clean up only your own mess.**
+**只动必须动的地方。只清理自己造成的问题。**
 
-When editing existing code:
+编辑现有代码时：
 
-- Don't "improve" adjacent code, comments, or formatting.
-- Don't refactor things that aren't broken.
-- Match existing style, even if you'd do it differently.
-- If you notice unrelated dead code, mention it - don't delete it.
+- 不顺手“优化”相邻代码、注释或格式。
+- 不重构没有坏掉的东西。
+- 匹配现有风格，即使你会用另一种写法。
+- 如果发现无关 dead code，可以提到，但不要删除。
 
-When your changes create orphans:
+当你的改动产生 orphan 时：
 
-- Remove imports/variables/functions that YOUR changes made unused.
-- Don't remove pre-existing dead code unless asked.
+- 删除由你的改动造成的未使用 import、变量或函数。
+- 不删除改动前已经存在的 dead code，除非用户要求。
 
-The test: Every changed line should trace directly to the user's request.
+判断标准：每一行改动都应该能直接追溯到用户请求。
 
-## 4. Goal-Driven Execution
+## 4. 目标驱动执行
 
-**Define success criteria. Loop until verified.**
+**定义成功标准，并循环到验证完成。**
 
-Transform tasks into verifiable goals:
+把任务转换成可验证目标：
 
-- "Add validation" -> "Write tests for invalid inputs, then make them pass"
-- "Fix the bug" -> "Write a test that reproduces it, then make it pass"
-- "Refactor X" -> "Ensure tests pass before and after"
+- “添加校验” -> “先写无效输入测试，再让测试通过”
+- “修 bug” -> “先写能复现 bug 的测试，再修到通过”
+- “重构 X” -> “确保重构前后测试都通过”
 
-For multi-step tasks, state a brief plan:
+多步骤任务需要给出简短计划：
 
 ```text
-1. [Step] -> verify: [check]
-2. [Step] -> verify: [check]
-3. [Step] -> verify: [check]
+1. [步骤] -> 验证：[检查方式]
+2. [步骤] -> 验证：[检查方式]
+3. [步骤] -> 验证：[检查方式]
 ```
 
-Strong success criteria let you loop independently. Weak criteria ("make it work") require constant clarification.
+强成功标准能让你独立循环。弱标准，比如“让它能用”，通常需要持续澄清。
 
 ---
 
-**These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+**这些规则生效的表现是：**diff 中无关改动更少、因为过度复杂导致的返工更少、澄清问题发生在实现前而不是出错后。
 
 ## Agent skills
 
 ### Issue tracker
 
-Issues and PRDs are tracked as local markdown files under `.scratch/`. See `docs/agents/issue-tracker.md`.
+Issues 和 PRDs 使用 `.scratch/` 下的本地 markdown 文件追踪。见 `docs/agents/issue-tracker.md`。
 
 ### Triage labels
 
-Use the default five-role triage vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, and `wontfix`. See `docs/agents/triage-labels.md`.
+使用默认五角色 triage 词汇：`needs-triage`、`needs-info`、`ready-for-agent`、`ready-for-human`、`wontfix`。见 `docs/agents/triage-labels.md`。
 
 ### Domain docs
 
-This repo uses a single-context domain documentation layout. Read `CONTEXT.md` if it exists and ADRs under `docs/adr/` when relevant. See `docs/agents/domain.md`.
+本仓库使用单一上下文领域文档布局。若 `CONTEXT.md` 存在则读取它；相关时读取 `docs/adr/` 下的 ADR。见 `docs/agents/domain.md`。
 
 ### TrendForge project skills
 
-Project-specific skill drafts live under `docs/agents/custom-skills/`. Use `trendforge-adapter-contract` for adapter and workflow integration changes, and `trendforge-doc-lifecycle` for planning docs, PRDs, ADRs, and temporary document cleanup.
+项目专属 skill 草案位于 `docs/agents/custom-skills/`。Adapter 和工作流集成变更使用 `trendforge-adapter-contract`；规划文档、PRD、ADR 和临时文档清理使用 `trendforge-doc-lifecycle`。

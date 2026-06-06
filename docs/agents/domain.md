@@ -1,26 +1,26 @@
-# Domain Docs
+# 领域文档
 
-How engineering skills should consume this repo's domain documentation when exploring the codebase.
+本文说明工程类技能在探索代码库时，应如何读取本仓库的领域文档。
 
-## Layout
+## 布局
 
-TrendForge currently uses a single-context layout.
+TrendForge 当前使用单一上下文文档布局。
 
-Read these before making domain-sensitive changes:
+做领域敏感改动前，优先阅读：
 
-- `CONTEXT.md` at the repo root, if it exists
-- `docs/adr/`, if it exists and contains decisions relevant to the area being changed
-- `design/architecture.md` for the current pipeline model
-- `design/integration-map.md` for source, publisher, and external workflow mapping
-- `design/source-adapters.md` when changing RSSHub, BrowserAct, or MediaCrawler behavior
-- `design/trendforge-contracts.schema.json` when changing pipeline contracts
-- `docs/agents/custom-skills/` for TrendForge-specific adapter and documentation lifecycle workflows
+- 仓库根目录的 `CONTEXT.md`，如果存在。
+- `docs/adr/`，如果存在且包含相关决策。
+- `design/architecture.md`，了解当前 pipeline 模型。
+- `design/integration-map.md`，了解 source、publisher 和外部工作流映射。
+- `design/source-adapters.md`，当改动 RSSHub、BrowserAct 或 MediaCrawler 行为时阅读。
+- `design/trendforge-contracts.schema.json`，当改动 pipeline 契约时阅读。
+- `docs/agents/custom-skills/`，了解 TrendForge 专属 adapter 和文档生命周期工作流。
 
-If `CONTEXT.md` or `docs/adr/` does not exist yet, proceed silently. Producer skills such as `grill-with-docs` should create them lazily when terms or decisions actually become stable.
+如果 `CONTEXT.md` 或 `docs/adr/` 尚不存在，可以继续工作。`grill-with-docs` 这类生产文档的技能应只在术语或决策真正稳定时再懒创建它们。
 
-## Vocabulary discipline
+## 术语纪律
 
-When output names a domain concept, use TrendForge's existing language:
+输出中提到领域概念时，优先使用 TrendForge 现有语言：
 
 - Source item
 - Verified article
@@ -31,12 +31,12 @@ When output names a domain concept, use TrendForge's existing language:
 - Run store
 - Pipeline run
 
-If the concept needed for a task is not in the glossary yet, either avoid inventing new vocabulary or use `grill-with-docs` to resolve the term before writing long-lived docs.
+如果任务需要的新概念还没有进入 glossary，要么避免发明新术语，要么先用 `grill-with-docs` 明确术语，再写入长期文档。
 
-## ADR conflicts
+## ADR 冲突
 
-If output contradicts an existing ADR, surface it explicitly instead of silently overriding it.
+如果输出会与已有 ADR 冲突，必须显式指出，不要静默覆盖。
 
-## Working docs lifecycle
+## Working docs 生命周期
 
-Temporary planning documents should live under `docs/working/` or `.scratch/<feature-slug>/`. After a task finishes, delete or archive temporary working docs unless they became stable project knowledge.
+临时计划文档应放在 `docs/working/` 或 `.scratch/<feature-slug>/`。任务结束后，除非它们已经变成稳定项目知识，否则应删除或归档。

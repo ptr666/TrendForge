@@ -1,77 +1,77 @@
-# TrendForge Project Progress
+# TrendForge 项目进度
 
-This document defines how TrendForge development is sequenced and tracked. It is the long-lived project progress guide, not a temporary task note.
+本文定义 TrendForge 的开发顺序和进度追踪方式。它是长期项目推进文档，不是临时任务记录。
 
-## Project Goal
+## 项目目标
 
-TrendForge now focuses on a local controllable AI trend content production desk:
+TrendForge 当前目标是一个本地可控的 AI 热点内容生产工作台：
 
 ```text
-AIHot/RSS source input -> brief verification -> selection -> BrowserAct/MediaCrawler original text acquisition -> Chinese summary -> platform drafts -> asset approval -> WeChat/XHS draft gates -> run history and review queue
+AIHot/RSS 来源输入 -> 简略信息校验 -> 筛选 -> BrowserAct/MediaCrawler 原文获取 -> 中文总结 -> 平台草稿 -> 图片资产审批 -> 微信公众号/小红书草稿 gate -> run history 和 review queue
 ```
 
-Phase 1 made the pipeline runnable and observable. Phase 2 adds production-control surfaces: source health, review queue, asset approval, and explicit WeChat/XHS real-draft gates.
+Phase 1 已让 pipeline 可运行、可观察。Phase 2 增加生产控制面：source health、review queue、asset approval，以及显式的微信公众号/小红书真实草稿 gate。
 
-## Progress Model
+## 进度模型
 
-Work is tracked as end-to-end vertical slices. Each slice should produce behavior that can be demonstrated or verified independently.
+所有任务按端到端垂直切片推进。每个切片都应产出可独立演示或验证的行为。
 
-Allowed status values:
+允许的状态值：
 
-- `planned`: accepted direction, not started.
-- `in-progress`: active work exists.
-- `blocked`: cannot progress without a missing decision, dependency, credential, external workflow, or environment.
-- `done`: implementation, verification, and document sync are complete.
+- `planned`：方向已接受，尚未开始。
+- `in-progress`：已有活跃工作。
+- `blocked`：缺少决策、依赖、凭证、外部工作流或环境，无法继续。
+- `done`：实现、验证和文档同步均已完成。
 
-Detailed PRDs and implementation issues live in `.scratch/<feature-slug>/` as described in `docs/agents/issue-tracker.md`.
+详细 PRD 和实现 issue 放在 `.scratch/<feature-slug>/`，规则见 `docs/agents/issue-tracker.md`。
 
-## Phase 1 Slices
+## Phase 1 切片
 
-| Order | Slice | Status | Verification signal | Notes |
+| 顺序 | 切片 | 状态 | 验收信号 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | AI HOT skill input runs to a review draft | done | CLI and pipeline tests run the committed AIHot fixture through source items, verified articles, selections, summaries, drafts, assets, publish plans, and run events | Proves the highest-priority AI trend path with deterministic providers. |
-| 2 | AI HOT RSS and generic RSS/RSSHub fallback run to a review draft | done | End-to-end RSS fixture test proves RSSHub input runs through selection, BrowserAct full-text plan, summaries, review/WeChat/XHS drafts, assets, publish plans, and run history readback | AI HOT RSS live endpoint wiring remains a future source-quality enhancement, not a blocker for the local RSS vertical slice. |
-| 3 | Verification failure creates BrowserAct planned command and diagnosable run events | done | Pipeline tests prove selected HTTP source items create `fetch_full_text` BrowserAct planned events with local handoff artifacts, and that BrowserAct-acquired full text feeds summaries and drafts | Keeps difficult pages observable and safe by default; real browser automation is plugged through `FullTextProvider`, and MediaCrawler remains gated behind explicit enablement. |
-| 4 | Selection and platform draft generation have stable test surfaces | done | Pipeline tests verify selected articles produce review, WeChat, and XHS drafts, media plans, publish plans, and run events through `createDefaultPipeline` | Stabilizes downstream adapter work. |
-| 5 | WeChat draft maps to the `wechat-official-account-workflow` skill contract | done | Dry-run publish results and run events include queued WeChat `plannedCommands` plus a local publisher handoff artifact; explicit real-draft requests fail closed until credential/IP whitelist health gates are ready | Uses `trendforge-adapter-contract`; real draft creation remains gated by explicit approval, credentials, and IP whitelist readiness. |
-| 6 | XHS draft maps to the `xhs-browser-draft-setup` skill workflow | done | Dry-run publish results and run events include queued XHS `plannedCommands` plus a local publisher handoff artifact; explicit real-draft requests fail closed until Hermes/bridge/extension/login health gates are ready | Uses `trendforge-adapter-contract`; real draft save remains gated by explicit approval, Hermes/bridge/extension/login health. |
-| 7 | CLI/API can query run history, items, and drafts | done | CLI and API acceptance tests run AIHot/RSS pipelines with stable run ids and committed fixtures via `--query-file`, then read back runs, events, items, and drafts through public surfaces | Makes local operation inspectable; `TRENDFORGE_RUNS_DIR` isolates test and experiment history. |
-| 8 | Source defaults distinguish collection from original text acquisition | done | Public source configuration exposes `defaultCollectorOrder` for AIHot/RSSHub collection and `defaultFullTextAcquisitionOrder` for BrowserAct/MediaCrawler original-text completion | Prevents BrowserAct and MediaCrawler from being treated as normal subscription sources. |
-| 9 | Real BrowserAct and model providers are env-gated | done | Provider tests cover command-backed BrowserAct extraction and OpenAI-compatible chat-completions summaries; pipeline tests prove model summaries flow into drafts | Defaults remain deterministic unless `TRENDFORGE_ENABLE_BROWSERACT=1` or `TRENDFORGE_TEXT_PROVIDER=openai-compatible` is configured. |
-| 10 | Browser workbench manages the local pipeline visually | done | `apps/web` builds and exposes model config, WeChat config/token check, subscription management, parameterized pipeline runs, run/event details, original-text artifacts, draft previews, and provider verification surfaces backed by API tests | Phase 2 extends this into explicit WeChat/XHS draft gates and asset approval; formal publishing remains disabled. |
+| 1 | AIHot skill 输入跑到 review draft | done | CLI 和 pipeline 测试使用内置 AIHot fixture 跑通 source items、verified articles、selections、summaries、drafts、assets、publish plans 和 run events | 证明最高优先级 AI 热点路径可用。 |
+| 2 | AIHot RSS 和通用 RSS/RSSHub fallback 跑到 review draft | done | RSS fixture 端到端测试证明 RSSHub 输入可进入筛选、BrowserAct 原文计划、总结、review/WeChat/XHS 草稿、assets、publish plans 和 run history readback | AIHot RSS live endpoint 仍是未来 source-quality 增强，不阻塞本地 RSS 切片。 |
+| 3 | 校验失败能产生 BrowserAct planned command 和可诊断 run events | done | Pipeline 测试证明入选 HTTP source item 会创建 `fetch_full_text` BrowserAct planned events 和本地 handoff artifacts，BrowserAct 获取的 full text 会进入总结和草稿 | 保持困难页面可观察且默认安全；真实浏览器自动化通过 `FullTextProvider` 接入，MediaCrawler 仍需显式启用。 |
+| 4 | 筛选和平台草稿生成有稳定测试入口 | done | Pipeline 测试通过 `createDefaultPipeline` 验证入选文章能生成 review、WeChat、XHS drafts、media plans、publish plans 和 run events | 稳定下游 adapter 工作。 |
+| 5 | WeChat draft 映射到 `wechat-official-account-workflow` skill 契约 | done | Dry-run publish results 和 run events 包含 queued WeChat `plannedCommands` 与本地 publisher handoff artifact；真实草稿请求会在凭证/IP 白名单 gate 未就绪时 fail closed | 使用 `trendforge-adapter-contract`；真实草稿创建需要显式审批、凭证和 IP 白名单。 |
+| 6 | XHS draft 映射到 `xhs-browser-draft-setup` skill 工作流 | done | Dry-run publish results 和 run events 包含 queued XHS `plannedCommands` 与本地 publisher handoff artifact；真实草稿请求会在 Hermes/bridge/extension/login gate 未就绪时 fail closed | 使用 `trendforge-adapter-contract`；真实草稿保存需要 Hermes/bridge/extension/login 健康。 |
+| 7 | CLI/API 可查询 run history、items 和 drafts | done | CLI 和 API acceptance tests 使用稳定 run id 和内置 fixture 运行 AIHot/RSS pipeline，并通过 public surfaces 读回 runs、events、items 和 drafts | 让本地运行可检查；`TRENDFORGE_RUNS_DIR` 可隔离测试和实验历史。 |
+| 8 | Source defaults 区分采集和原文获取 | done | Public source configuration 暴露 `defaultCollectorOrder` 和 `defaultFullTextAcquisitionOrder` | 防止把 BrowserAct 和 MediaCrawler 当成普通订阅源。 |
+| 9 | 真实 BrowserAct 和模型 provider 由环境变量 gate 控制 | done | Provider tests 覆盖命令式 BrowserAct extraction 和 OpenAI-compatible chat-completions summaries；pipeline tests 证明模型总结进入草稿 | 默认保持确定性，除非配置 `TRENDFORGE_ENABLE_BROWSERACT=1` 或 `TRENDFORGE_TEXT_PROVIDER=openai-compatible`。 |
+| 10 | Browser workbench 可视化管理本地 pipeline | done | `apps/web` 可构建，并暴露模型配置、WeChat 配置/token check、订阅管理、参数化 pipeline 运行、run/event 详情、原文 artifacts、草稿预览和 provider 验证入口；API tests 覆盖后端 | Phase 2 将其扩展为明确的 WeChat/XHS 草稿 gate 和 asset approval；正式发布保持禁用。 |
 
-## Phase 2 Slices
+## Phase 2 切片
 
-Phase 2 turns the runnable local pipeline into a controllable content production desk.
+Phase 2 把可运行 pipeline 变成可控内容生产台。
 
-| Order | Slice | Status | Verification signal | Notes |
+| 顺序 | 切片 | 状态 | 验收信号 | 备注 |
 | --- | --- | --- | --- | --- |
-| 1 | Human review and waiting queue | done | Pipeline/API tests prove runs produce review queue items for missing original text, summaries, drafts, publisher handoffs, and blocked platform gates; Web exposes the queue as production-control items and `apps/web` builds | This is the first control-plane layer above raw run history. |
-| 2 | Web workbench modularization | done | `apps/web` builds with shared `types.ts`, `api.ts`, reusable UI primitives, and config/source/run/history/review/reader panel components extracted from the single large entry file | Keeps workflow behavior stable while making later Phase 2 panels safer to add. |
-| 3 | RSS/AIHot source health dashboard | done | Source health tests cover healthy, disabled, and empty source states; API exposes `/sources/health` and validation health; Web shows item counts, error categories, sample links, and a direct use-in-run action | Keeps source quality visible before model/provider cost is spent. |
-| 4 | WeChat real draft creation gate | done | WeChat unit/API tests prove default dry-run stays queued, missing config fails closed, token checks are masked, `/publishers` exposes gate state, and valid token plus `coverMediaId` can call the official draft/add API wrapper | Formal publish remains disabled; real success still requires valid official-account credentials, IP whitelist, and cover media readiness. |
-| 5 | XHS real browser draft save gate | done | XHS unit/API tests prove dry-run stays queued, disabled or missing local workflow fails closed, `/config/xhs` and `/verify/xhs` expose gate state, and real save requires `check-login -> fill-publish -> save-draft` plus a page-level draft-saved signal | Does not rely only on command exit code; real save still requires Hermes/bridge/extension/login readiness. |
-| 6 | Image provider and asset approval | done | Pipeline/API tests prove WeChat 16:9 covers and XHS 3:4 images are planned with `needs-approval`; review queue exposes asset approval control points, Web can approve assets, and saved runs rebuild the queue after approval | Assets remain prompt/placeholder by default until a real image provider/upload path is configured. |
+| 1 | Human review 和 waiting queue | done | Pipeline/API tests 证明 run 会为缺失原文、summary、draft、publisher handoff 和 blocked platform gate 产生 review queue items；Web 将它们展示为生产控制项，`apps/web` 可构建 | 这是 run history 之上的第一层控制面。 |
+| 2 | Web workbench 模块化 | done | `apps/web` 构建通过，包含 shared `types.ts`、`api.ts`、可复用 UI primitives，以及从大型入口拆出的 config/source/run/history/review/reader panel components | 保持行为稳定，同时让后续 Phase 2 面板更安全地添加。 |
+| 3 | RSS/AIHot source health dashboard | done | Source health tests 覆盖 healthy、disabled、empty 状态；API 暴露 `/sources/health` 和 validation health；Web 展示 item counts、error categories、sample links 和 use-in-run 操作 | 在消耗模型/provider 成本前暴露 source 质量。 |
+| 4 | WeChat 真实草稿创建 gate | done | WeChat unit/API tests 证明默认 dry-run 保持 queued、缺少配置 fail closed、token checks 做脱敏、`/publishers` 暴露 gate state，valid token 加 `coverMediaId` 可调用官方 draft/add API wrapper | 正式发布禁用；真实成功仍需要有效公众号凭证、IP 白名单和封面素材就绪。 |
+| 5 | XHS 真实浏览器草稿保存 gate | done | XHS unit/API tests 证明 dry-run queued、禁用或缺少本地 workflow 会 fail closed、`/config/xhs` 和 `/verify/xhs` 暴露 gate state，真实保存需要 `check-login -> fill-publish -> save-draft` 加页面级草稿已保存信号 | 不只依赖命令退出码；真实保存仍需要 Hermes/bridge/extension/login 就绪。 |
+| 6 | Image provider 和 asset approval | done | Pipeline/API tests 证明 WeChat 16:9 cover 和 XHS 3:4 images 会以 `needs-approval` 规划；review queue 暴露 asset approval 控制点，Web 可审批 assets，保存的 run 审批后会重建 queue | 默认仍是 prompt/placeholder 资产，直到接入真实 image provider/upload path。 |
 
-## Per-Slice Definition of Done
+## 每个切片的完成标准
 
-A slice is `done` only when:
+切片只有满足以下条件才是 `done`：
 
-- The behavior is reachable through a public interface such as CLI, API, pipeline, or run store.
-- There is a runnable test, command, or explicit human verification signal.
-- Adapter-related work has passed the `trendforge-adapter-contract` checklist.
-- Any PRD or implementation issue under `.scratch/<feature-slug>/` reflects the final behavior.
-- Stable design changes are reflected in `design/`, `CONTEXT.md`, or `docs/adr/` when appropriate.
-- Temporary docs in `docs/working/` are deleted or archived if they are no longer useful.
+- 行为能通过 CLI、API、pipeline 或 run store 这类 public interface 访问。
+- 有可运行测试、命令或明确人工验收信号。
+- Adapter 相关工作通过 `trendforge-adapter-contract` checklist。
+- `.scratch/<feature-slug>/` 下的 PRD 或实现 issue 反映最终行为。
+- 稳定设计变化同步到 `design/`、`CONTEXT.md` 或 `docs/adr/`。
+- 不再有用的 `docs/working/` 临时文档已删除或归档。
 
-## Document Sync Loop
+## 文档同步循环
 
-Development and documentation move together:
+开发和文档同步推进：
 
-1. Clarify the request with `grill-me` or `grill-with-docs`.
-2. Write the PRD and issues under `.scratch/<feature-slug>/`.
-3. Implement with `tdd`, one behavior at a time.
-4. Update stable docs only when the implementation proves the decision is durable.
-5. Run `trendforge-doc-lifecycle` cleanup before marking the slice `done`.
+1. 用 `grill-me` 或 `grill-with-docs` 澄清需求。
+2. 在 `.scratch/<feature-slug>/` 写 PRD 和 issues。
+3. 用 `tdd` 一次实现一个行为。
+4. 只有实现证明决策稳定后才更新长期文档。
+5. 标记切片 `done` 前运行 `trendforge-doc-lifecycle` cleanup。
 
-Old working notes do not override current code, tests, design docs, or user instructions. If a document conflicts with implementation reality, resolve the conflict explicitly before continuing.
+旧 working notes 不覆盖当前代码、测试、设计文档或用户指令。如果文档与实现现实冲突，必须先显式解决冲突再继续。

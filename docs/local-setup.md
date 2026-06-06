@@ -1,20 +1,20 @@
-# Local Setup
+# 本地环境
 
-## Requirements
+## 环境要求
 
-- Node.js 20 or newer
+- Node.js 20 或更高版本
 - npm
 - Git
 
-## Install
+## 安装
 
-Use a project-local npm cache on this machine because the global npm cache may point outside the workspace:
+这台机器建议使用项目内 npm cache，因为全局 npm cache 可能指向 workspace 之外：
 
 ```powershell
 npm.cmd install --cache .\.npm-cache
 ```
 
-## Validate
+## 验证
 
 ```powershell
 npm.cmd run check
@@ -23,21 +23,21 @@ npm.cmd run web:build
 npm.cmd test
 ```
 
-## Run CLI
+## 运行 CLI
 
 ```powershell
 npm.cmd run cli -- run --query "AI workflow demo" --platforms review,wechat,xhs
 ```
 
-The command writes run records into `workspace/runs/`.
+命令会把运行记录写入 `workspace/runs/`。
 
-## Run API
+## 运行 API
 
 ```powershell
 npm.cmd run api
 ```
 
-Then use:
+可用接口包括：
 
 - `GET /health`
 - `GET /providers`
@@ -70,37 +70,37 @@ Then use:
 - `GET /review-queue`
 - `GET /artifacts?path=<workspace/runs/...>`
 
-Real platform drafts remain disabled unless explicitly requested with real-draft flags and passing health gates. Formal publishing remains disabled.
+真实平台草稿默认禁用；只有显式开启 real-draft，并通过健康检查后才会创建草稿。正式发布保持禁用。
 
-## Run Web UI
+## 运行 Web UI
 
-Start the API first, then start the local Vite workbench:
+先启动 API，再启动本地 Vite 工作台：
 
 ```powershell
 npm.cmd run api
 npm.cmd run web:dev
 ```
 
-The UI defaults to `http://127.0.0.1:4780` for API calls. Override it with:
+UI 默认访问 `http://127.0.0.1:4780`。如需覆盖：
 
 ```powershell
 $env:VITE_TRENDFORGE_API = "http://127.0.0.1:4780"
 ```
 
-The workbench includes:
+当前 Web 工作台包含：
 
-- RSS subscription management and validation.
-- BrowserAct original-text verification.
-- MediaCrawler configuration checks.
-- OpenAI-compatible model verification.
-- WeChat and XHS publisher gate checks.
-- Review queue, asset approval, pipeline run history, drafts, assets, and handoff artifact paths.
+- RSS 订阅源管理与验证。
+- BrowserAct 原文获取验证。
+- MediaCrawler 配置检查。
+- OpenAI-compatible 模型验证。
+- 微信公众号和小红书 publisher gate 检查。
+- Review queue、图片资产审批、pipeline run history、草稿、资产和 handoff artifact 路径查看。
 
-## Optional Real Providers
+## 可选真实 provider
 
-The default pipeline stays deterministic and safe for local tests. Enable real providers only when the local tools and credentials are ready.
+默认 pipeline 保持确定性，并适合本地测试。只有在本地工具和凭证准备好后，才启用真实 provider。
 
-### BrowserAct Full Text
+### BrowserAct 原文获取
 
 ```powershell
 $env:TRENDFORGE_ENABLE_BROWSERACT = "1"
@@ -108,15 +108,15 @@ $env:TRENDFORGE_BROWSERACT_COMMAND = "browser-act"
 npm.cmd run cli -- run --run-id browseract-demo --query-file tests/fixtures/rss/ai-workflow.xml --top-n 1
 ```
 
-When enabled, selected HTTP source items run:
+启用后，入选 HTTP source item 会执行：
 
 ```text
 browser-act stealth-extract <url> --content-type markdown
 ```
 
-Success means `VerifiedArticle.fullText` is populated and the `fetch_full_text` event becomes `verified`. Failure is recorded as a failed BrowserAct article with the command error message.
+成功时 `VerifiedArticle.fullText` 会被填充，`fetch_full_text` event 变为 `verified`；失败时会记录 BrowserAct 错误信息。
 
-### OpenAI-Compatible Text Provider
+### OpenAI-compatible text provider
 
 ```powershell
 $env:TRENDFORGE_TEXT_PROVIDER = "openai-compatible"
@@ -126,11 +126,11 @@ $env:TRENDFORGE_MODEL_NAME = "gpt-4.1-mini"
 npm.cmd run cli -- run --run-id model-demo --query-file tests/fixtures/aihot/aihot-skill.json --top-n 1
 ```
 
-The provider calls `/chat/completions` and expects JSON content with `title`, `summary`, `angle`, `keyPoints`, and `riskNotes`.
+provider 调用 `/chat/completions`，并期望模型返回包含 `title`、`summary`、`angle`、`keyPoints` 和 `riskNotes` 的 JSON 内容。
 
-### Real End-to-End Smoke Run
+### 真实端到端 smoke
 
-Use process-local environment variables for credentials. Do not write API keys into repository files.
+凭证只通过当前进程环境变量传入，不写入仓库文件。
 
 ```powershell
 $env:TRENDFORGE_ENABLE_BROWSERACT = "1"
@@ -142,8 +142,8 @@ $env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
 npm.cmd run cli -- run --run-id real-e2e-smoke --query "https://openai.com/news/rss.xml" --platforms review,wechat,xhs --top-n 1
 ```
 
-The run stores review, WeChat, and XHS draft Markdown files under `workspace/runs/<run-id>/drafts/`. BrowserAct original-text evidence is recorded in `workspace/runs/<run-id>.events.jsonl`.
+运行后，Review、微信公众号和小红书 Markdown 草稿会写入 `workspace/runs/<run-id>/drafts/`；BrowserAct 原文证据会记录到 `workspace/runs/<run-id>.events.jsonl` 和对应 run 产物中。
 
-## Complete Usage Flow
+## 完整流程
 
-See [Complete usage flow](usage-flow.md) for the current end-to-end operating guide, including Web workbench usage, source health checks, review queue, asset approval, and WeChat/XHS draft gates.
+完整操作说明见 [完整使用流程](usage-flow.md)，其中包括 Web 工作台、source health、review queue、asset approval 和微信公众号/小红书草稿 gate。

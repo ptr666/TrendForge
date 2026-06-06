@@ -1,108 +1,108 @@
-# TrendForge Development
+# TrendForge 开发流程
 
-This document defines the default development workflow for TrendForge. It is a long-lived process guide for human developers and agents.
+本文定义 TrendForge 默认开发流程，面向人类开发者和 agent，是长期维护规则，不是临时任务记录。
 
-## Development Principles
+## 开发原则
 
-Follow the repository rules in `AGENTS.md`:
+遵循仓库根目录 `AGENTS.md`：
 
-- Keep changes simple and scoped to the current request.
-- Prefer surgical edits over broad refactors.
-- Define success criteria before implementation.
-- Verify the behavior that changed.
-- Record durable decisions, but do not preserve temporary planning notes as permanent constraints.
+- 改动保持简单，只覆盖当前需求。
+- 优先做外科手术式修改，避免无关重构。
+- 实现前明确成功标准。
+- 验证实际改变的行为。
+- 记录稳定决策，但不要把临时计划当成永久约束。
 
-## Skill Workflow
+## 技能工作流
 
-Use the installed skills and repository-local skill drafts as the default path from idea to implementation:
+从想法进入实现时，默认使用已安装技能和仓库内自定义 skill 草案：
 
 ```text
-grill-me or grill-with-docs
+grill-me 或 grill-with-docs
 -> to-prd
 -> to-issues
 -> tdd
 -> trendforge-doc-lifecycle cleanup
 ```
 
-- Use `grill-me` when the request is broad and needs interrogation before documentation.
-- Use `grill-with-docs` when terminology, domain language, or durable decisions need to be captured.
-- Use `to-prd` after intent is clear enough to describe the user-facing problem and solution.
-- Use `to-issues` to break a PRD into end-to-end vertical slices in the local markdown issue tracker.
-- Use `tdd` to implement one observable behavior at a time.
-- Use `diagnose` when a bug, regression, or inconsistent pipeline result needs a feedback loop and root cause.
-- Use `improve-codebase-architecture` when tests are hard to write or module boundaries are blocking progress.
+- 需求宽泛时用 `grill-me` 追问清楚。
+- 术语、领域语言或稳定决策需要沉淀时用 `grill-with-docs`。
+- 意图清楚后用 `to-prd` 描述用户问题和解决方案。
+- 用 `to-issues` 把 PRD 拆成端到端垂直切片，写入本地 markdown issue tracker。
+- 用 `tdd` 一次实现一个可观察行为。
+- 遇到 bug、回归或 pipeline 结果不一致时用 `diagnose` 找根因。
+- 测试难写或模块边界阻碍推进时，用 `improve-codebase-architecture`。
 
-The local issue tracker convention is documented in `docs/agents/issue-tracker.md`. Domain documentation rules are documented in `docs/agents/domain.md`.
+本地 issue tracker 规则见 `docs/agents/issue-tracker.md`。领域文档规则见 `docs/agents/domain.md`。
 
-## Adapter Work
+## Adapter 工作
 
-Before adding or changing an adapter, planned command, publisher, source integration, workflow bridge, success signal, failure signal, idempotency rule, compliance gate, or evidence capture behavior, use `trendforge-adapter-contract`.
+新增或修改 adapter、planned command、publisher、source integration、workflow bridge、成功信号、失败信号、幂等规则、合规 gate 或证据保留行为前，先使用 `trendforge-adapter-contract`。
 
-Current publishing workflow facts:
+当前发布工作流事实：
 
-- WeChat publishing enters through `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`, which manages the local Node workflow for article brief, Markdown, preview, check, AI/local cover strategy, official API image upload, draft creation, and publish state.
-- Xiaohongshu publishing enters through `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`, a share-safe setup and troubleshooting skill around `autoclaw-cc/xiaohongshu-skills`, Hermes, browser bridge, Chrome extension, login checks, page fill, draft save, and optional publish commands.
-- Publish results and run events should expose structured `plannedCommands` and a local `artifactPath` handoff file for dry-run draft creation, while real draft creation remains behind explicit approval and health gates.
-- Publisher handoff artifacts are JSON files under `workspace/runs/<runId>/publisher-handoffs/` by default. They contain the workflow name, platform draft, planned commands, and verification signal for the WeChat or XHS skill to consume.
-- `--real-draft` or `allowRealDraft=true` requests real draft creation, but publisher adapters must still fail closed when workflow health gates are not ready.
+- 微信公众号入口是 `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，它管理本地 Node 工作流：article brief、Markdown、预览、检查、AI/本地封面策略、官方 API 图片上传、草稿创建和发布状态。
+- 小红书入口是 `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，它围绕 `autoclaw-cc/xiaohongshu-skills`、Hermes、browser bridge、Chrome 扩展、登录态检查、页面填充、草稿保存和可选发布命令提供 share-safe 设置与排障。
+- publish result 和 run event 应暴露结构化 `plannedCommands`，并为 dry-run 草稿创建写入本地 `artifactPath` handoff 文件。
+- publisher handoff artifact 默认位于 `workspace/runs/<runId>/publisher-handoffs/`，内容包含 workflow 名称、平台草稿、planned commands 和验证信号。
+- `--real-draft` 或 `allowRealDraft=true` 表示请求真实创建草稿，但 publisher adapter 必须在健康 gate 未就绪时 fail closed。
 
-Current source workflow facts:
+当前来源工作流事实：
 
-- AI trend information enters first through AI HOT: `https://aihot.virxact.com/aihot-skill/`.
-- AI HOT RSS is the same-source fallback and stays ahead of generic RSSHub routes.
-- RSSHub remains the general RSS/RSSHub adapter for non-AI HOT sources.
-- RSS and AI HOT source items may contain brief text, but original-text acquisition belongs to BrowserAct or MediaCrawler after selection.
-- BrowserAct is the default planned command path for selected HTTP source items that still need original text.
-- BrowserAct planned acquisition writes a local JSON handoff artifact under `workspace/runs/<runId>/full-text-handoffs/` by default, including the source URL, command, success signal, and MediaCrawler fallback policy.
-- `FullTextProvider` is the pipeline seam for plugging in real BrowserAct or MediaCrawler extraction; `TRENDFORGE_ENABLE_BROWSERACT=1` enables the command-backed BrowserAct provider.
-- `TextProvider` is the pipeline seam for model summaries; `TRENDFORGE_TEXT_PROVIDER=openai-compatible` enables the OpenAI-compatible chat-completions provider.
-- Tests should prove acquired full text and model summaries feed downstream drafts.
-- MediaCrawler is never a default original-text acquisition path; it requires explicit enablement and compliance review.
+- AI 热点信息优先通过 AIHot：`https://aihot.virxact.com/aihot-skill/`。
+- AIHot RSS 是同源 fallback，优先级高于通用 RSSHub route。
+- RSSHub 作为非 AIHot 的通用 RSS/RSSHub adapter。
+- RSS 和 AIHot source item 可能包含简略正文，但完整原文获取属于入选后的 BrowserAct 或 MediaCrawler 阶段。
+- BrowserAct 是入选 HTTP source item 的默认 planned command 原文获取路径。
+- BrowserAct planned acquisition 默认在 `workspace/runs/<runId>/full-text-handoffs/` 写入本地 JSON handoff artifact，包含 source URL、command、成功信号和 MediaCrawler fallback 策略。
+- `FullTextProvider` 是接入真实 BrowserAct 或 MediaCrawler extraction 的 pipeline seam；`TRENDFORGE_ENABLE_BROWSERACT=1` 启用命令式 BrowserAct provider。
+- `TextProvider` 是模型总结的 pipeline seam；`TRENDFORGE_TEXT_PROVIDER=openai-compatible` 启用 OpenAI-compatible chat-completions provider。
+- 测试应证明获取到的 full text 和模型总结会进入下游草稿。
+- MediaCrawler 绝不是默认原文获取路径；必须显式启用并完成合规判断。
 
-The skill draft lives at `docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`.
+skill 草案位置：`docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`。
 
-The contract must clarify:
+契约必须明确：
 
-- Adapter role and pipeline stage.
-- Input and output contract.
-- Observable success and failure signals.
-- Idempotency key.
-- Evidence retained for diagnosis.
-- Compliance or explicit-enable requirements.
-- Dry-run behavior.
-- Highest public interface for tests.
+- Adapter 角色和 pipeline 阶段。
+- 输入和输出契约。
+- 可观察的成功/失败信号。
+- 幂等 key。
+- 为诊断保留的证据。
+- 合规或显式启用要求。
+- Dry-run 行为。
+- 测试应覆盖的最高 public interface。
 
-Keep external workflow commands as planned commands unless the user explicitly enables real execution. MediaCrawler remains disabled unless explicitly enabled.
+外部工作流命令默认只作为 planned command，除非用户显式开启真实执行。MediaCrawler 保持默认禁用。
 
-## TDD Standard
+## TDD 标准
 
-Implementation tasks should start with behavior tests through public interfaces. Prefer the highest stable interface that exercises the real path:
+实现任务应先通过 public interface 写行为测试。优先选择能覆盖真实路径的最高稳定入口：
 
-- CLI behavior for local user workflows.
-- API behavior for HTTP-facing workflows.
-- `createDefaultPipeline` for end-to-end pipeline behavior.
-- `RunStore` behavior for persisted run state and event history.
+- CLI 行为，用于本地用户工作流。
+- API 行为，用于 HTTP-facing 工作流。
+- `createDefaultPipeline`，用于端到端 pipeline 行为。
+- `RunStore`，用于持久化 run state 和 event history。
 
-Write one failing test for one behavior, implement the minimum code to pass it, then repeat. Do not bulk-write tests for imagined future behavior.
+每次只为一个行为写一个失败测试，写最少代码让它通过，再继续下一步。不要为想象中的未来行为批量写测试。
 
-## Documentation Sync
+## 文档同步
 
-Every implementation task ends with a document sync check:
+每个实现任务结束前都要检查文档同步：
 
-- Update `design/` only for stable system design or contract changes.
-- Update `docs/agents/` only for agent operating rules and skill configuration.
-- Update `.scratch/<feature-slug>/` for PRDs, implementation issues, and task discussion.
-- Use `docs/working/` only for temporary planning notes.
-- Update `CONTEXT.md` only for stable glossary terms.
-- Add `docs/adr/` entries only for durable decisions that are hard to reverse, surprising without context, and based on real tradeoffs.
+- 只有稳定系统设计或契约变化才更新 `design/`。
+- 只有 agent 操作规则和 skill 配置才更新 `docs/agents/`。
+- PRD、实现 issue 和任务讨论放入 `.scratch/<feature-slug>/`。
+- 临时计划放 `docs/working/`。
+- 只有稳定术语进入 `CONTEXT.md`。
+- 只有难以回退、未来会疑惑、并且确实存在取舍的稳定决策才写 `docs/adr/`。
 
-Use `trendforge-doc-lifecycle` for this cleanup. The skill draft lives at `docs/agents/custom-skills/trendforge-doc-lifecycle/SKILL.md`.
+使用 `trendforge-doc-lifecycle` 做清理。skill 草案位置：`docs/agents/custom-skills/trendforge-doc-lifecycle/SKILL.md`。
 
-Temporary working docs should be deleted or archived when they no longer guide active work.
+不再指导当前工作的临时文档应删除或归档。
 
-## Verification Commands
+## 验证命令
 
-Default verification commands:
+默认验证：
 
 ```powershell
 npm.cmd run build
@@ -110,26 +110,26 @@ npm.cmd run web:build
 npm.cmd test
 ```
 
-For pure documentation changes, business tests are not required. Verify links, references, and consistency with `AGENTS.md`, `docs/agents/issue-tracker.md`, `docs/agents/domain.md`, and the relevant custom skill drafts.
+纯文档变更不要求跑业务测试，但要检查链接、引用和内容是否与 `AGENTS.md`、`docs/agents/issue-tracker.md`、`docs/agents/domain.md` 及相关自定义 skill 草案一致。
 
-## Backend Commands
+## 后台命令
 
-The backend-first workflow is available through API and CLI surfaces:
+后台优先工作流可通过 API 和 CLI 使用：
 
-- `trendforge run` runs the full local pipeline.
-- `trendforge run --run-id <id>` runs the pipeline with a stable id for reproducible run history checks.
-- `trendforge run --run-id <id> --query-file tests/fixtures/aihot/aihot-skill.json` runs the committed AIHot fixture through the local end-to-end pipeline.
-- `trendforge run --run-id <id> --query-file tests/fixtures/rss/ai-workflow.xml` runs the committed RSS fixture through the local end-to-end pipeline.
-- `trendforge run-subscription --subscription-id <id>` runs an enabled local source subscription.
-- `trendforge runs` lists saved pipeline runs.
-- `trendforge events --run-id <id>` reads stage events for a run.
-- `trendforge sources` prints source adapter defaults, original-text acquisition defaults, AI HOT priority, and local subscriptions.
-- `trendforge publishers` prints publisher adapter health.
+- `trendforge run`：运行完整本地 pipeline。
+- `trendforge run --run-id <id>`：使用稳定 id 运行，便于复现 run history。
+- `trendforge run --run-id <id> --query-file tests/fixtures/aihot/aihot-skill.json`：使用内置 AIHot fixture 运行端到端 pipeline。
+- `trendforge run --run-id <id> --query-file tests/fixtures/rss/ai-workflow.xml`：使用内置 RSS fixture 运行端到端 pipeline。
+- `trendforge run-subscription --subscription-id <id>`：运行启用的本地订阅源。
+- `trendforge runs`：列出保存的 pipeline run。
+- `trendforge events --run-id <id>`：读取某次运行的阶段 event。
+- `trendforge sources`：输出 source adapter 默认值、原文获取默认值、AIHot 优先级和本地订阅。
+- `trendforge publishers`：输出 publisher adapter health。
 
-The API exposes matching run inspection surfaces:
+API 暴露匹配的查询入口：
 
 - `POST /pipeline/run`
-- `POST /pipeline/run` accepts an optional `runId` for reproducible run history checks.
+- `POST /pipeline/run` 可接受可选 `runId`，用于复现 run history。
 - `GET /runs`
 - `GET /runs/:runId`
 - `GET /runs/:runId/events`
@@ -154,6 +154,6 @@ The API exposes matching run inspection surfaces:
 - `POST /runs/:runId/assets/:assetId/approve`
 - `GET /artifacts?path=<workspace/runs/...>`
 
-`defaultCollectorOrder` describes brief-information collection only: AI HOT first, then generic RSS/RSSHub. `defaultFullTextAcquisitionOrder` describes original-text completion after selection: BrowserAct first, then MediaCrawler only when explicitly enabled.
+`defaultCollectorOrder` 只描述简略信息采集：AIHot 优先，然后通用 RSS/RSSHub。`defaultFullTextAcquisitionOrder` 描述入选后的原文补全：BrowserAct 优先，MediaCrawler 仅在显式启用后可用。
 
-Set `TRENDFORGE_RUNS_DIR=<path>` to isolate run history during tests, experiments, or scripted verification.
+设置 `TRENDFORGE_RUNS_DIR=<path>` 可在测试、实验或脚本验证时隔离 run history。

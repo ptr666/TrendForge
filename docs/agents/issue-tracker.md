@@ -1,25 +1,25 @@
-# Issue tracker: Local Markdown
+# Issue tracker：本地 Markdown
 
-Issues and PRDs for this repo live as markdown files in `.scratch/`.
+本仓库的 issues 和 PRDs 以 markdown 文件形式放在 `.scratch/`。
 
-## Conventions
+## 约定
 
-- One feature per directory: `.scratch/<feature-slug>/`
-- The PRD is `.scratch/<feature-slug>/PRD.md`
-- Implementation issues are `.scratch/<feature-slug>/issues/<NN>-<slug>.md`, numbered from `01`
-- Triage state is recorded as a `Status:` line near the top of each issue file
-- Comments and conversation history append to the bottom of the file under a `## Comments` heading
+- 每个 feature 一个目录：`.scratch/<feature-slug>/`
+- PRD 文件：`.scratch/<feature-slug>/PRD.md`
+- 实现 issue 文件：`.scratch/<feature-slug>/issues/<NN>-<slug>.md`，从 `01` 开始编号
+- Triage 状态写在每个 issue 文件靠前位置的 `Status:` 行
+- 评论和对话历史追加到文件底部的 `## Comments` 标题下
 
-## When a skill says "publish to the issue tracker"
+## 当技能说“publish to the issue tracker”
 
-Create a new file under `.scratch/<feature-slug>/`, creating the directory if needed.
+在 `.scratch/<feature-slug>/` 下创建新文件；目录不存在时一并创建。
 
-## When a skill says "fetch the relevant ticket"
+## 当技能说“fetch the relevant ticket”
 
-Read the file at the referenced path. The user will normally pass the path or the issue number directly.
+读取用户给出的路径或 issue 编号对应文件。用户通常会直接传路径或编号。
 
-## TrendForge slicing rule
+## TrendForge 切片规则
 
-Implementation issues should be vertical slices through the TrendForge pipeline. Prefer issues that carry one behavior from source input through verification, selection, drafting, media planning, storage, API or CLI exposure, and tests when those layers are relevant.
+实现 issue 应尽量是贯穿 TrendForge pipeline 的垂直切片。当相关层存在时，优先让一个 issue 从 source input 贯穿 verification、selection、drafting、media planning、storage、API/CLI exposure 和 tests。
 
-Avoid issues that only say "implement package X" unless that package-level work is itself independently verifiable.
+避免只写“实现 package X”这种横向任务，除非 package 级工作本身可以独立验证。

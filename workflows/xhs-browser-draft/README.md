@@ -1,21 +1,21 @@
-# Xiaohongshu Browser Draft Workflow Adapter
+# 小红书浏览器草稿工作流 Adapter
 
-This directory is reserved for the wrapped Xiaohongshu browser draft workflow.
+该目录用于 TrendForge 对小红书浏览器草稿工作流的封装说明。
 
-Current source workflow:
+当前来源工作流：
 
-- Local skill package: `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`
-- Implementation provenance: `https://github.com/autoclaw-cc/xiaohongshu-skills`
-- Runtime bridge: Hermes + browser bridge + Chrome extension
-- Role: share-safe setup and troubleshooting until `check-login`, `fill-publish`, and `save-draft` can reliably save a Xiaohongshu draft
+- 本地 skill package：`xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`
+- 实现来源：`https://github.com/autoclaw-cc/xiaohongshu-skills`
+- 运行桥接：Hermes + browser bridge + Chrome extension
+- 角色：提供 share-safe 的 setup 和 troubleshooting，直到 `check-login`、`fill-publish`、`save-draft` 能可靠保存小红书草稿
 
-Adapter contract:
+Adapter 契约：
 
-- Healthcheck: verify Hermes, bridge server, browser extension, and login state.
-- Fill: call `check-login` then `fill-publish`.
-- Save: call `save-draft` only after visible page content is confirmed.
-- Publish: call `publish` only after explicit user action.
-- Success: browser page shows an explicit draft-saved signal; command success alone is not enough.
-- Environment: preserve both macOS + Chrome and WSL + Windows Chrome setup guidance.
+- Healthcheck：验证 Hermes、bridge server、浏览器扩展和登录态。
+- Fill：先调用 `check-login`，再调用 `fill-publish`。
+- Save：确认页面可见内容后，才调用 `save-draft`。
+- Publish：只有用户显式操作后才调用 `publish`。
+- 成功信号：浏览器页面显示明确的草稿已保存信号；命令成功本身不够。
+- 环境：保留 macOS + Chrome 和 WSL + Windows Chrome 两类设置指导。
 
-No real browser publishing should happen from tests or default skeleton commands.
+测试或默认骨架命令不得执行真实浏览器发布。
