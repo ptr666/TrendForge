@@ -1,0 +1,11 @@
+{
+  "items": [
+    {
+      "id": "fixture-aihot-1",
+      "title": "AI agents move into daily research workflows",
+      "url": "https://example.com/aihot-agents-research",
+      "summary": "AI agents are shifting from demos into repeatable research, comparison, and publishing workflows.",
+      "tags": ["featured", "aihot", "skill"]
+    }
+  ]
+}
