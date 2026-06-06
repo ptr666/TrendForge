@@ -2,19 +2,24 @@ import http from "node:http";
 import { access, readFile } from "node:fs/promises";
 import path from "node:path";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
+import { buildReviewQueue } from "../../../packages/core/src/review-queue.js";
 import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import {
   readModelConfig,
   readWechatConfig,
+  readXhsConfig,
   toPublicModelConfig,
   toPublicWechatConfig,
+  toPublicXhsConfig,
   writeModelConfig,
-  writeWechatConfig
+  writeWechatConfig,
+  writeXhsConfig
 } from "../../../packages/config/src/local-config.js";
-import { readSubscriptions, writeSubscriptions } from "../../../packages/config/src/subscriptions.js";
+import { checkSourceHealth, checkSourcesHealth, readSubscriptions, writeSubscriptions } from "../../../packages/config/src/subscriptions.js";
 import { MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
 import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
-import { requestWechatAccessToken } from "../../../packages/publishers/src/wechat.js";
+import { checkWechatDraftGate, createWechatOfficialPublisher, requestWechatAccessToken } from "../../../packages/publishers/src/wechat.js";
+import { checkXhsDraftGate, createXhsBrowserPublisher } from "../../../packages/publishers/src/xhs.js";
 import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../../packages/providers/src/index.js";
 import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
@@ -22,7 +27,16 @@ import type { CandidateSelection, Platform, SourceItem, VerifiedArticle } from "
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
-const publishers = createPlannedPublishers();
+
+async function createRuntimePublishers() {
+  const planned = createPlannedPublishers();
+  const wechatConfig = await readWechatConfig();
+  const xhsConfig = await readXhsConfig();
+  return planned.map((publisher) => publisher.platform === "wechat"
+    ? createWechatOfficialPublisher(wechatConfig)
+    : publisher.platform === "xhs" ? createXhsBrowserPublisher(xhsConfig)
+    : publisher);
+}
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   const chunks = [];
@@ -116,7 +130,8 @@ const server = http.createServer(async (req, res) => {
     send(res, 200, {
       ...providerState(),
       localModel: toPublicModelConfig(modelConfig),
-      wechat: toPublicWechatConfig(await readWechatConfig())
+      wechat: toPublicWechatConfig(await readWechatConfig()),
+      xhs: toPublicXhsConfig(await readXhsConfig())
     });
     return;
   }
@@ -157,7 +172,8 @@ const server = http.createServer(async (req, res) => {
     const saved = await writeWechatConfig({
       enabled: body.enabled === true,
       appId: typeof body.appId === "string" ? body.appId : existing.appId,
-      appSecret
+      appSecret,
+      coverMediaId: typeof body.coverMediaId === "string" ? body.coverMediaId : existing.coverMediaId
     });
     send(res, 200, toPublicWechatConfig(saved));
     return;
@@ -172,7 +188,31 @@ const server = http.createServer(async (req, res) => {
       });
       return;
     }
-    send(res, 200, await requestWechatAccessToken(config.appId, config.appSecret));
+    const token = await requestWechatAccessToken(config.appId, config.appSecret);
+    const gate = await checkWechatDraftGate(config, { allowRealDraft: true });
+    send(res, 200, { ...token, gate });
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/config/xhs") {
+    send(res, 200, toPublicXhsConfig(await readXhsConfig()));
+    return;
+  }
+
+  if (req.method === "PUT" && req.url === "/config/xhs") {
+    const body = await readJsonBody(req);
+    const existing = await readXhsConfig();
+    const saved = await writeXhsConfig({
+      enabled: body.enabled === true,
+      projectDir: typeof body.projectDir === "string" ? body.projectDir : existing.projectDir,
+      bridgeUrl: typeof body.bridgeUrl === "string" ? body.bridgeUrl : existing.bridgeUrl
+    });
+    send(res, 200, toPublicXhsConfig(saved));
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/xhs") {
+    send(res, 200, await checkXhsDraftGate(await readXhsConfig(), { allowRealDraft: true }));
     return;
   }
 
@@ -203,10 +243,15 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "POST" && req.url === "/subscriptions/validate") {
     const body = await readJsonBody(req);
     const source = typeof body.source === "string" ? body.source : "";
-    const adapter = new RssHubSourceAdapter();
-    const raw = await adapter.collect(source);
-    const items = raw.map((item) => adapter.normalize(item)).slice(0, 10);
-    send(res, 200, { ok: items.length > 0, count: items.length, items });
+    const type = body.type === "aihot" || body.type === "rsshub" || body.type === "rss" ? body.type : "rss";
+    const health = await checkSourceHealth({
+      id: typeof body.id === "string" ? body.id : "ad-hoc-source",
+      title: typeof body.title === "string" ? body.title : "Ad hoc source",
+      type,
+      source,
+      enabled: true
+    });
+    send(res, 200, { ok: health.status === "healthy", count: health.itemCount, items: health.sampleItems, health });
     return;
   }
 
@@ -289,7 +334,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "POST" && req.url === "/pipeline/run") {
     const body = await readJsonBody(req);
-    const pipeline = createDefaultPipeline({ store, ...createRuntimeProviders(process.env, await readModelConfig()) });
+    const pipeline = createDefaultPipeline({
+      store,
+      ...createRuntimeProviders(process.env, await readModelConfig()),
+      publishers: await createRuntimePublishers()
+    });
     const requestedPlatforms = Array.isArray(body.requestedPlatforms)
       ? body.requestedPlatforms.filter((platform): platform is Platform => ["review", "wechat", "xhs"].includes(String(platform)))
       : ["review", "wechat", "xhs"] satisfies Platform[];
@@ -312,6 +361,17 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "GET" && req.url === "/review-queue") {
+    const runs = await store.listRuns();
+    const queue = [];
+    for (const entry of runs.slice(0, 20)) {
+      const run = await store.readRun(entry.runId);
+      if (run) queue.push(...(run.reviewQueue ?? buildReviewQueue(run)));
+    }
+    send(res, 200, { queue });
+    return;
+  }
+
   if (req.method === "GET" && req.url?.startsWith("/runs/")) {
     const runId = decodeURIComponent(req.url.slice("/runs/".length));
     if (runId.endsWith("/events")) {
@@ -319,8 +379,37 @@ const server = http.createServer(async (req, res) => {
       send(res, 200, { runId: realRunId, events: await store.readEvents(realRunId) });
       return;
     }
+    if (runId.endsWith("/review-queue")) {
+      const realRunId = runId.slice(0, -"/review-queue".length);
+      const run = await store.readRun(realRunId);
+      send(res, run ? 200 : 404, run ? { runId: realRunId, queue: run.reviewQueue ?? buildReviewQueue(run) } : { error: "run_not_found" });
+      return;
+    }
     const run = await store.readRun(runId);
     send(res, run ? 200 : 404, run ?? { error: "run_not_found" });
+    return;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/runs/") && req.url.includes("/assets/") && req.url.endsWith("/approve")) {
+    const match = /^\/runs\/([^/]+)\/assets\/([^/]+)\/approve$/.exec(req.url);
+    const runId = decodeURIComponent(match?.[1] ?? "");
+    const assetId = decodeURIComponent(match?.[2] ?? "");
+    const run = await store.readRun(runId);
+    if (!run) {
+      send(res, 404, { error: "run_not_found" });
+      return;
+    }
+    const asset = run.assets.find((candidate) => candidate.id === assetId);
+    if (!asset) {
+      send(res, 404, { error: "asset_not_found" });
+      return;
+    }
+    asset.status = "approved";
+    asset.approvalRequired = false;
+    run.reviewQueue = buildReviewQueue(run);
+    await store.saveRun(run);
+    await store.appendEvent(runId, { stage: "asset_approval", assetId, status: "approved" });
+    send(res, 200, { ok: true, asset, queue: run.reviewQueue });
     return;
   }
 
@@ -339,17 +428,26 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "GET" && req.url === "/sources") {
+    const subscriptions = await readSubscriptions();
     send(res, 200, {
       defaultCollectorOrder,
       defaultFullTextAcquisitionOrder,
       aiHotDefaults,
       mediaCrawlerDefaults,
-      subscriptions: await readSubscriptions()
+      subscriptions,
+      health: await checkSourcesHealth(subscriptions)
     });
     return;
   }
 
+  if (req.method === "GET" && req.url === "/sources/health") {
+    const subscriptions = await readSubscriptions();
+    send(res, 200, { health: await checkSourcesHealth(subscriptions) });
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/publishers") {
+    const publishers = await createRuntimePublishers();
     const health = [];
     for (const publisher of publishers) {
       health.push({ platform: publisher.platform, ...(await publisher.healthcheck()) });

@@ -34,7 +34,14 @@ test("pipeline runs from AI HOT source to platform draft plans and events", asyn
   assert.ok(result.assets.some((asset) => asset.type === "cover"));
   assert.ok(result.assets.some((asset) => asset.type === "xhs_image"));
   assert.ok(result.assets.every((asset) => typeof asset.prompt === "string" && asset.prompt.length > 0));
+  assert.ok(result.assets.some((asset) => asset.type === "cover" && asset.ratio === "16:9" && asset.status === "needs-approval"));
+  assert.ok(result.assets.some((asset) => asset.type === "xhs_image" && asset.ratio === "3:4" && asset.status === "needs-approval"));
   assert.ok(result.publishResults.every((publishResult) => publishResult.status === "queued"));
+  assert.ok(result.reviewQueue?.some((item) => item.category === "summary" && item.status === "needs-review"));
+  assert.ok(result.reviewQueue?.some((item) => item.category === "draft" && item.platform === "wechat"));
+  assert.ok(result.reviewQueue?.some((item) => item.category === "asset" && item.platform === "wechat" && item.status === "needs-review"));
+  assert.ok(result.reviewQueue?.some((item) => item.category === "asset" && item.platform === "xhs" && item.status === "needs-review"));
+  assert.ok(result.reviewQueue?.some((item) => item.category === "publisher" && item.platform === "xhs" && item.status === "waiting"));
   assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.verificationSignal?.includes("state/published.json")));
   assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.verificationSignal?.includes("draft-saved")));
 
@@ -160,6 +167,8 @@ test("pipeline tries the next scored candidate when BrowserAct cannot fetch the 
     assert.equal(result.verifiedArticles.find((article) => article.evidenceUrl?.includes("blocked"))?.status, "failed");
     assert.equal(selectedItem?.title, "可访问的 AIHot 信号");
     assert.ok(result.summaries[0]?.summary.includes("这是 BrowserAct 获取到的完整中文原文"));
+    assert.ok(result.reviewQueue?.some((item) => item.category === "original-text" && item.status === "blocked"));
+    assert.ok(result.reviewQueue?.some((item) => item.category === "summary" && item.status === "needs-review"));
     assert.ok(result.drafts.some((draft) => draft.platform === "review" && draft.body.includes("### 原文摘录")));
     assert.ok(result.drafts.some((draft) => draft.platform === "wechat" && draft.body.includes("## 为什么值得关注")));
     assert.ok(result.drafts.some((draft) => draft.platform === "xhs" && draft.body.includes("#AI热点")));
@@ -277,6 +286,8 @@ test("pipeline blocks real platform draft creation when publisher health gates a
     const events = await store.readEvents("run-real-draft-gate");
 
     assert.ok(result.publishResults.every((publishResult) => publishResult.status === "failed"));
+    assert.ok(result.reviewQueue?.some((item) => item.category === "publisher" && item.platform === "wechat" && item.status === "blocked"));
+    assert.ok(result.reviewQueue?.some((item) => item.category === "publisher" && item.platform === "xhs" && item.status === "blocked"));
     assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.message?.includes("health gate")));
     assert.ok(result.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.message?.includes("health gate")));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "failed"));

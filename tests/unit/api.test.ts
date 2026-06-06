@@ -74,13 +74,21 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     }) as {
       runId?: string;
       drafts?: Array<{ platform: string; artifactPath?: string }>;
+      assets?: Array<{ id: string; status?: string }>;
       publishResults?: Array<{ platform: string; status: string; artifactPath?: string }>;
     };
+    const firstAssetId = run.assets?.[0]?.id;
+    assert.ok(firstAssetId);
+    const approvedAsset = await requestJson(`${baseUrl}/runs/api-rss-e2e/assets/${encodeURIComponent(firstAssetId)}/approve`, {
+      method: "POST",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; asset?: { status?: string; approvalRequired?: boolean }; queue?: Array<{ id: string; category: string }> };
     const runs = await requestJson(`${baseUrl}/runs`) as { runs?: Array<{ runId: string }> };
     const savedRun = await requestJson(`${baseUrl}/runs/api-rss-e2e`) as { runId?: string };
     const events = await requestJson(`${baseUrl}/runs/api-rss-e2e/events`) as { events?: Array<Record<string, unknown>> };
     const items = await requestJson(`${baseUrl}/items`) as { items?: Array<{ collectorAdapter: string }> };
     const drafts = await requestJson(`${baseUrl}/drafts`) as { drafts?: Array<{ platform: string }> };
+    const reviewQueue = await requestJson(`${baseUrl}/review-queue`) as { queue?: Array<{ category: string; status: string; platform?: string }> };
     const providers = await requestJson(`${baseUrl}/providers`) as { text?: { keyConfigured: boolean; keyPreview?: string } };
     const savedModel = await requestJson(`${baseUrl}/config/model`, {
       method: "PUT",
@@ -99,22 +107,43 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
       body: JSON.stringify({
         enabled: true,
         appId: "wx-test-app",
-        appSecret: "fixture-wechat-key"
+        appSecret: "fixture-wechat-key",
+        coverMediaId: "cover-media-id"
       })
-    }) as { secretConfigured?: boolean; secretPreview?: string; appSecret?: string };
+    }) as { secretConfigured?: boolean; secretPreview?: string; appSecret?: string; coverMediaId?: string };
+    const savedXhs = await requestJson(`${baseUrl}/config/xhs`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: true,
+        projectDir: "vendor/xiaohongshu-skills",
+        bridgeUrl: "ws://localhost:9343"
+      })
+    }) as { enabled?: boolean; projectDir?: string; bridgeUrl?: string };
     const subscriptions = await requestJson(`${baseUrl}/subscriptions`) as { subscriptions?: Array<{ id: string }> };
+    const sources = await requestJson(`${baseUrl}/sources`) as { health?: Array<{ id: string; status: string; itemCount: number }> };
+    const sourceHealth = await requestJson(`${baseUrl}/sources/health`) as { health?: Array<{ id: string; status: string }> };
+    const publishers = await requestJson(`${baseUrl}/publishers`) as { publishers?: Array<{ platform: string; ok: boolean; gate?: { status: string; message: string } }> };
     const rssValidation = await requestJson(`${baseUrl}/subscriptions/validate`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ source: rss })
-    }) as { ok?: boolean; count?: number };
+      body: JSON.stringify({ id: "api-rss", title: "API RSS", type: "rss", source: rss })
+    }) as { ok?: boolean; count?: number; health?: { status: string; errorCategory: string } };
     const mediaCrawler = await requestJson(`${baseUrl}/verify/mediacrawler`, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ enabled: true })
     }) as { enabled?: boolean; hasMain?: boolean; hasPyproject?: boolean };
+    const xhsVerification = await requestJson(`${baseUrl}/verify/xhs`, {
+      method: "POST",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; status?: string; projectDir?: string };
 
     assert.equal(run.runId, "api-rss-e2e");
+    assert.equal(approvedAsset.ok, true);
+    assert.equal(approvedAsset.asset?.status, "approved");
+    assert.equal(approvedAsset.asset?.approvalRequired, false);
+    assert.equal(approvedAsset.queue?.some((item) => item.category === "asset" && item.id.endsWith(firstAssetId)), false);
     assert.equal(savedRun.runId, "api-rss-e2e");
     assert.equal(runs.runs?.[0]?.runId, "api-rss-e2e");
     assert.equal(run.drafts?.length, 3);
@@ -125,6 +154,9 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.equal(items.items?.[0]?.collectorAdapter, "rsshub");
     assert.deepEqual(drafts.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
+    assert.ok(reviewQueue.queue?.some((item) => item.category === "summary" && item.status === "needs-review"));
+    assert.ok(reviewQueue.queue?.some((item) => item.category === "draft" && item.platform === "wechat"));
+    assert.ok(reviewQueue.queue?.some((item) => item.category === "publisher" && item.platform === "xhs"));
     assert.ok(run.drafts?.every((draft) => typeof draft.artifactPath === "string"));
     const firstDraftArtifact = run.drafts?.find((draft) => draft.artifactPath)?.artifactPath;
     assert.ok(firstDraftArtifact);
@@ -140,12 +172,23 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.equal(savedWechat.secretConfigured, true);
     assert.match(savedWechat.secretPreview ?? "", /^\*+-key$/);
     assert.equal(savedWechat.appSecret, undefined);
+    assert.equal(savedWechat.coverMediaId, "cover-media-id");
+    assert.equal(savedXhs.enabled, true);
+    assert.equal(savedXhs.bridgeUrl, "ws://localhost:9343");
     assert.ok(subscriptions.subscriptions?.some((subscription) => subscription.id === "aihot-skill"));
+    assert.ok(sources.health?.some((health) => health.id === "aihot-skill"));
+    assert.ok(sourceHealth.health?.some((health) => health.id === "aihot-skill"));
+    assert.ok(publishers.publishers?.some((publisher) => publisher.platform === "wechat" && publisher.ok === false && publisher.gate?.status === "blocked"));
+    assert.ok(publishers.publishers?.some((publisher) => publisher.platform === "xhs" && publisher.ok === false && publisher.gate?.status === "blocked"));
     assert.equal(rssValidation.ok, true);
     assert.equal(rssValidation.count, 2);
+    assert.equal(rssValidation.health?.status, "healthy");
+    assert.equal(rssValidation.health?.errorCategory, "none");
     assert.equal(mediaCrawler.enabled, true);
     assert.equal(mediaCrawler.hasMain, true);
     assert.equal(mediaCrawler.hasPyproject, true);
+    assert.equal(xhsVerification.status, "blocked");
+    assert.match(xhsVerification.projectDir ?? "", /xiaohongshu-skills/);
   } finally {
     child.kill();
     await new Promise((resolve) => child.once("exit", resolve));

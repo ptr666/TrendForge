@@ -40,6 +40,19 @@ Detailed PRDs and implementation issues live in `.scratch/<feature-slug>/` as de
 | 9 | Real BrowserAct and model providers are env-gated | done | Provider tests cover command-backed BrowserAct extraction and OpenAI-compatible chat-completions summaries; pipeline tests prove model summaries flow into drafts | Defaults remain deterministic unless `TRENDFORGE_ENABLE_BROWSERACT=1` or `TRENDFORGE_TEXT_PROVIDER=openai-compatible` is configured. |
 | 10 | Browser workbench manages the local pipeline visually | done | `apps/web` builds and exposes model config, WeChat config/token check, subscription management, parameterized pipeline runs, run/event details, original-text artifacts, draft previews, and provider verification surfaces backed by API tests | Real WeChat/XHS publishing remains gated; the WeChat backend can make the official token request from local appId/appSecret config. |
 
+## Phase 2 Slices
+
+Phase 2 turns the runnable local pipeline into a controllable content production desk.
+
+| Order | Slice | Status | Verification signal | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | Human review and waiting queue | done | Pipeline/API tests prove runs produce review queue items for missing original text, summaries, drafts, publisher handoffs, and blocked platform gates; Web exposes the queue as production-control items and `apps/web` builds | This is the first control-plane layer above raw run history. |
+| 2 | Web workbench modularization | done | `apps/web` builds with shared `types.ts`, `api.ts`, reusable UI primitives, and config/source/run/history/review/reader panel components extracted from the single large entry file | Keeps workflow behavior stable while making later Phase 2 panels safer to add. |
+| 3 | RSS/AIHot source health dashboard | done | Source health tests cover healthy, disabled, and empty source states; API exposes `/sources/health` and validation health; Web shows item counts, error categories, sample links, and a direct use-in-run action | Keeps source quality visible before model/provider cost is spent. |
+| 4 | WeChat real draft creation gate | done | WeChat unit/API tests prove default dry-run stays queued, missing config fails closed, token checks are masked, `/publishers` exposes gate state, and valid token plus `coverMediaId` can call the official draft/add API wrapper | Formal publish remains disabled; real success still requires valid official-account credentials, IP whitelist, and cover media readiness. |
+| 5 | XHS real browser draft save gate | done | XHS unit/API tests prove dry-run stays queued, disabled or missing local workflow fails closed, `/config/xhs` and `/verify/xhs` expose gate state, and real save requires `check-login -> fill-publish -> save-draft` plus a page-level draft-saved signal | Does not rely only on command exit code; real save still requires Hermes/bridge/extension/login readiness. |
+| 6 | Image provider and asset approval | done | Pipeline/API tests prove WeChat 16:9 covers and XHS 3:4 images are planned with `needs-approval`; review queue exposes asset approval control points, Web can approve assets, and saved runs rebuild the queue after approval | Assets remain prompt/placeholder by default until a real image provider/upload path is configured. |
+
 ## Per-Slice Definition of Done
 
 A slice is `done` only when:

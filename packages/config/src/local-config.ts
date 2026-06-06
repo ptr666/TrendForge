@@ -13,6 +13,13 @@ export interface WechatConfig {
   enabled: boolean;
   appId: string;
   appSecret?: string;
+  coverMediaId?: string;
+}
+
+export interface XhsConfig {
+  enabled: boolean;
+  projectDir: string;
+  bridgeUrl: string;
 }
 
 export interface PublicModelConfig {
@@ -29,6 +36,13 @@ export interface PublicWechatConfig {
   appId: string;
   secretConfigured: boolean;
   secretPreview?: string;
+  coverMediaId?: string;
+}
+
+export interface PublicXhsConfig {
+  enabled: boolean;
+  projectDir: string;
+  bridgeUrl: string;
 }
 
 export const defaultModelConfig: ModelConfig = {
@@ -41,6 +55,12 @@ export const defaultModelConfig: ModelConfig = {
 export const defaultWechatConfig: WechatConfig = {
   enabled: false,
   appId: ""
+};
+
+export const defaultXhsConfig: XhsConfig = {
+  enabled: false,
+  projectDir: "vendor/xiaohongshu-skills",
+  bridgeUrl: "ws://localhost:9343"
 };
 
 function defaultConfigDir(): string {
@@ -62,6 +82,10 @@ function wechatConfigPath(configDir = defaultConfigDir()): string {
   return path.join(configDir, "wechat.json");
 }
 
+function xhsConfigPath(configDir = defaultConfigDir()): string {
+  return path.join(configDir, "xhs.json");
+}
+
 function normalizeModelConfig(value: unknown): ModelConfig {
   const candidate = value && typeof value === "object" ? value as Partial<ModelConfig> : {};
   const provider = candidate.provider === "openai-compatible" ? "openai-compatible" : "deterministic";
@@ -79,7 +103,17 @@ function normalizeWechatConfig(value: unknown): WechatConfig {
   return {
     enabled: candidate.enabled === true,
     appId: typeof candidate.appId === "string" ? candidate.appId.trim() : "",
-    appSecret: typeof candidate.appSecret === "string" && candidate.appSecret.trim() ? candidate.appSecret.trim() : undefined
+    appSecret: typeof candidate.appSecret === "string" && candidate.appSecret.trim() ? candidate.appSecret.trim() : undefined,
+    coverMediaId: typeof candidate.coverMediaId === "string" && candidate.coverMediaId.trim() ? candidate.coverMediaId.trim() : undefined
+  };
+}
+
+function normalizeXhsConfig(value: unknown): XhsConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<XhsConfig> : {};
+  return {
+    enabled: candidate.enabled === true,
+    projectDir: typeof candidate.projectDir === "string" && candidate.projectDir.trim() ? candidate.projectDir.trim() : defaultXhsConfig.projectDir,
+    bridgeUrl: typeof candidate.bridgeUrl === "string" && candidate.bridgeUrl.trim() ? candidate.bridgeUrl.trim() : defaultXhsConfig.bridgeUrl
   };
 }
 
@@ -99,7 +133,16 @@ export function toPublicWechatConfig(config: WechatConfig): PublicWechatConfig {
     enabled: config.enabled,
     appId: config.appId,
     secretConfigured: Boolean(config.appSecret),
-    secretPreview: maskSecret(config.appSecret)
+    secretPreview: maskSecret(config.appSecret),
+    coverMediaId: config.coverMediaId
+  };
+}
+
+export function toPublicXhsConfig(config: XhsConfig): PublicXhsConfig {
+  return {
+    enabled: config.enabled,
+    projectDir: config.projectDir,
+    bridgeUrl: config.bridgeUrl
   };
 }
 
@@ -132,5 +175,20 @@ export async function writeWechatConfig(config: WechatConfig, configDir?: string
   // Keep appSecret local; API responses only expose masked previews.
   await mkdir(path.dirname(wechatConfigPath(configDir)), { recursive: true });
   await writeFile(wechatConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+}
+
+export async function readXhsConfig(configDir?: string): Promise<XhsConfig> {
+  try {
+    return normalizeXhsConfig(JSON.parse(await readFile(xhsConfigPath(configDir), "utf8")) as unknown);
+  } catch {
+    return defaultXhsConfig;
+  }
+}
+
+export async function writeXhsConfig(config: XhsConfig, configDir?: string): Promise<XhsConfig> {
+  const normalized = normalizeXhsConfig(config);
+  await mkdir(path.dirname(xhsConfigPath(configDir)), { recursive: true });
+  await writeFile(xhsConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
   return normalized;
 }

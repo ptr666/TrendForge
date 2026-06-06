@@ -21,6 +21,7 @@ test("run store saves, reads, and lists runs", async () => {
     drafts: [],
     assets: [],
     publishResults: [],
+    reviewQueue: [],
     errors: []
   };
 

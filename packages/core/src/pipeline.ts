@@ -7,6 +7,7 @@ import { createDefaultTextProvider } from "../../providers/src/index.js";
 import { createDefaultSelector } from "../../selector/src/index.js";
 import { createDefaultSourceAdapters } from "../../sources/src/adapters.js";
 import { createDefaultVerifier } from "../../verifier/src/index.js";
+import { buildReviewQueue } from "./review-queue.js";
 import type {
   PipelineRunRequest,
   PipelineRunResult,
@@ -16,6 +17,7 @@ import type {
   SourceAdapter,
   VerifiedArticle,
   FullTextProvider,
+  PublisherAdapter,
   TextProvider,
   Selector
 } from "./types.js";
@@ -26,6 +28,7 @@ export interface PipelineDeps {
   fullTextProvider?: FullTextProvider;
   textProvider?: TextProvider;
   selector?: Selector;
+  publishers?: PublisherAdapter[];
   publisherHandoffDir?: string;
   fullTextHandoffDir?: string;
   draftArtifactDir?: string;
@@ -152,7 +155,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
   const generator = createDefaultDraftGenerator();
   const textProvider = deps.textProvider ?? createDefaultTextProvider();
   const media = createDefaultMediaComposer();
-  const publishers = createPlannedPublishers();
+  const publishers = deps.publishers ?? createPlannedPublishers();
   const fullTextProvider = deps.fullTextProvider ?? createPlannedFullTextProvider();
 
   return {
@@ -358,7 +361,9 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         publishResults,
         errors
       };
+      result.reviewQueue = buildReviewQueue(result);
       await deps.store.saveRun(result);
+      await deps.store.appendEvent(request.runId, { stage: "review_queue", count: result.reviewQueue.length });
       await deps.store.appendEvent(request.runId, { stage: "finished", status: result.status });
       return result;
     }

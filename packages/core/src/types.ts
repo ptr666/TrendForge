@@ -65,6 +65,8 @@ export interface MediaAsset {
   draftId: string;
   type: "cover" | "inline_image" | "xhs_image" | "preview";
   source: "generated" | "local" | "remote" | "placeholder";
+  status?: "planned" | "needs-approval" | "approved" | "blocked";
+  approvalRequired?: boolean;
   path?: string;
   prompt?: string;
   ratio?: string;
@@ -89,6 +91,27 @@ export interface PublishResult {
   plannedCommands?: PlannedCommand[];
 }
 
+export type ReviewQueueStatus = "waiting" | "needs-review" | "blocked" | "ready";
+
+export type ReviewQueueCategory = "original-text" | "summary" | "draft" | "asset" | "publisher" | "pipeline";
+
+export interface ReviewQueueItem {
+  id: string;
+  runId: string;
+  status: ReviewQueueStatus;
+  category: ReviewQueueCategory;
+  title: string;
+  reason: string;
+  action: string;
+  sourceItemId?: string;
+  draftId?: string;
+  platform?: Platform;
+  artifactPath?: string;
+  evidenceUrl?: string;
+  priority: "high" | "normal";
+  createdAt: string;
+}
+
 export interface SourceSubscription {
   id: string;
   title: string;
@@ -97,6 +120,24 @@ export interface SourceSubscription {
   enabled: boolean;
   priority?: number;
   tags?: string[];
+}
+
+export type SourceHealthStatus = "healthy" | "empty" | "failed" | "disabled";
+
+export type SourceHealthErrorCategory = "none" | "disabled" | "network" | "parse" | "empty" | "unsupported" | "unknown";
+
+export interface SourceHealth {
+  id: string;
+  title: string;
+  type: SourceSubscription["type"];
+  source: string;
+  enabled: boolean;
+  status: SourceHealthStatus;
+  errorCategory: SourceHealthErrorCategory;
+  itemCount: number;
+  checkedAt: string;
+  message: string;
+  sampleItems: Array<Pick<SourceItem, "id" | "title" | "url" | "summary" | "publishedAt" | "collectorAdapter">>;
 }
 
 export interface PipelineRunRequest {
@@ -122,6 +163,7 @@ export interface PipelineRunResult {
   drafts: PlatformDraft[];
   assets: MediaAsset[];
   publishResults: PublishResult[];
+  reviewQueue?: ReviewQueueItem[];
   errors: Array<{ stage: string; message: string }>;
 }
 
@@ -170,7 +212,7 @@ export interface MediaComposer {
 
 export interface PublisherAdapter {
   platform: Exclude<Platform, "review">;
-  healthcheck(): Promise<{ ok: boolean; message?: string }>;
+  healthcheck(): Promise<{ ok: boolean; message?: string; [key: string]: unknown }>;
   preview(draft: PlatformDraft): Promise<{ ok: boolean; path?: string; message?: string }>;
   publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean; handoffDir?: string }): Promise<PublishResult>;
   readLastResult(): Promise<PublishResult | undefined>;

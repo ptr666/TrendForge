@@ -10,6 +10,8 @@ export function createDefaultMediaComposer(imageProvider: ImageProvider = create
           draftId: draft.id,
           type: "cover",
           source: "placeholder",
+          status: "planned",
+          approvalRequired: true,
           ratio: "16:9"
         }];
       }
@@ -19,6 +21,8 @@ export function createDefaultMediaComposer(imageProvider: ImageProvider = create
           draftId: draft.id,
           type: "xhs_image",
           source: "placeholder",
+          status: "planned",
+          approvalRequired: true,
           ratio: "3:4"
         }];
       }
@@ -31,7 +35,7 @@ export function createDefaultMediaComposer(imageProvider: ImageProvider = create
       const generated = [];
       for (const asset of assets) {
         const planned = await imageProvider.planPrompt(draft, asset);
-        Object.assign(asset, planned);
+        Object.assign(asset, { ...planned, status: "needs-approval", approvalRequired: true });
         generated.push(asset);
       }
       draft.assetIds = generated.map((asset) => asset.id);
