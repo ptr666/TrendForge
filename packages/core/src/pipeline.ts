@@ -29,6 +29,7 @@ export interface PipelineDeps {
   publisherHandoffDir?: string;
   fullTextHandoffDir?: string;
   draftArtifactDir?: string;
+  fullTextArtifactDir?: string;
 }
 
 function createPlannedFullTextProvider(): FullTextProvider {
@@ -54,6 +55,10 @@ function defaultFullTextHandoffDir(runId: string, baseDir?: string): string {
 
 function defaultDraftArtifactDir(runId: string, baseDir?: string): string {
   return baseDir ?? `workspace/runs/${runId}/drafts`;
+}
+
+function defaultFullTextArtifactDir(runId: string, baseDir?: string): string {
+  return baseDir ?? `workspace/runs/${runId}/full-text`;
 }
 
 function isHttpUrl(url: string): boolean {
@@ -108,6 +113,37 @@ async function writeFullTextHandoff(
     successSignal: "VerifiedArticle.fullText is populated and fetch_full_text event status becomes verified."
   }, null, 2), "utf8");
   return artifactPath;
+}
+
+async function writeFullTextArtifact(
+  runId: string,
+  item: SourceItem,
+  article: VerifiedArticle,
+  baseDir?: string
+): Promise<VerifiedArticle> {
+  if (!article.fullText?.trim()) return article;
+
+  const dir = defaultFullTextArtifactDir(runId, baseDir);
+  await mkdir(dir, { recursive: true });
+  const artifactPath = path.join(dir, `${item.id}.md`);
+  const content = [
+    "---",
+    `sourceItemId: ${item.id}`,
+    `title: ${JSON.stringify(item.title)}`,
+    `url: ${JSON.stringify(article.evidenceUrl ?? item.url)}`,
+    `method: ${article.method}`,
+    `status: ${article.status}`,
+    item.publishedAt ? `publishedAt: ${JSON.stringify(item.publishedAt)}` : undefined,
+    "---",
+    "",
+    `# ${item.title}`,
+    "",
+    `Source: ${article.evidenceUrl ?? item.url}`,
+    "",
+    article.fullText
+  ].filter((line): line is string => line !== undefined).join("\n");
+  await writeFile(artifactPath, `\uFEFF${content}`, "utf8");
+  return { ...article, fullTextArtifactPath: artifactPath };
 }
 
 export function createDefaultPipeline(deps: PipelineDeps) {
@@ -206,15 +242,17 @@ export function createDefaultPipeline(deps: PipelineDeps) {
             reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
           });
           const acquired = await fullTextProvider.acquire(item, article);
-          verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquired);
-          currentArticle = acquired;
+          const acquiredWithArtifact = await writeFullTextArtifact(request.runId, item, acquired, deps.fullTextArtifactDir);
+          verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquiredWithArtifact);
+          currentArticle = acquiredWithArtifact;
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
             adapter: "browseract",
-            status: acquired.status,
+            status: acquiredWithArtifact.status,
             sourceItemId: item.id,
-            evidenceUrl: acquired.evidenceUrl,
-            reason: acquired.failureReason
+            evidenceUrl: acquiredWithArtifact.evidenceUrl,
+            artifactPath: acquiredWithArtifact.fullTextArtifactPath,
+            reason: acquiredWithArtifact.failureReason
           });
         } else if (article.status !== "verified" && isHttpUrl(item.url) && request.allowMediaCrawlerFallback === true) {
           await deps.store.appendEvent(request.runId, {

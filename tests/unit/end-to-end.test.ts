@@ -121,13 +121,19 @@ test("selected RSS item can use BrowserAct full text before summary and drafts",
 
     assert.equal(result.verifiedArticles[0]?.status, "verified");
     assert.equal(result.verifiedArticles[0]?.method, "browseract");
+    assert.equal(typeof result.verifiedArticles[0]?.fullTextArtifactPath, "string");
+    const fullTextArtifact = await readFile(result.verifiedArticles[0]?.fullTextArtifactPath as string, "utf8");
+    assert.match(fullTextArtifact, /sourceItemId: rsshub-/);
+    assert.match(fullTextArtifact, /method: browseract/);
+    assert.match(fullTextArtifact, /# AI agents reshape product research/);
+    assert.match(fullTextArtifact, /Complete BrowserAct article text/);
     assert.equal(savedRun?.summaries[0]?.summary, "这条 AI 热点信号显示：Complete BrowserAct article text");
     assert.deepEqual(savedRun?.summaries[0]?.keyPoints, [
       "原文要点 1：Complete BrowserAct article text",
       "原文要点 2：This contains the product research angle used by downstream drafts"
     ]);
     assert.ok(savedRun?.drafts.some((draft) => draft.body.includes("Complete BrowserAct article text")));
-    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "verified"));
+    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "verified" && typeof event.artifactPath === "string"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

@@ -24,6 +24,7 @@ export interface VerifiedArticle {
   method: "aihot" | "rss" | "http" | "browseract" | "mediacrawler" | "manual";
   evidenceUrl?: string;
   fullText?: string;
+  fullTextArtifactPath?: string;
   failureReason?: string;
 }
 
