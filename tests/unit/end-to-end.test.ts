@@ -23,7 +23,11 @@ const rss = `<?xml version="1.0"?>
 test("RSS pipeline run can be read back with end-to-end draft evidence", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-e2e-"));
   const store = createRunStore({ rootDir });
-  const pipeline = createDefaultPipeline({ store, publisherHandoffDir: path.join(rootDir, "publisher-handoffs") });
+  const pipeline = createDefaultPipeline({
+    store,
+    fullTextHandoffDir: path.join(rootDir, "full-text-handoffs"),
+    publisherHandoffDir: path.join(rootDir, "publisher-handoffs")
+  });
 
   try {
     const result = await pipeline.run({
@@ -67,6 +71,11 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
     assert.ok(events.some((event) => event.stage === "collect" && event.adapter === "rsshub" && event.status === "finished"));
     assert.ok(events.some((event) => event.stage === "score"));
     assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "planned"));
+    const browserActHandoff = events.find((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "planned")?.artifactPath;
+    assert.equal(typeof browserActHandoff, "string");
+    const browserActContent = JSON.parse(await readFile(browserActHandoff as string, "utf8")) as Record<string, unknown>;
+    assert.equal(browserActContent.workflow, "browseract-full-text-acquisition");
+    assert.equal(browserActContent.fallbackWorkflow, "mediacrawler-full-text-fallback");
     assert.ok(events.some((event) => event.stage === "summarize"));
     assert.ok(events.some((event) => event.stage === "generate" && event.count === 3));
     assert.ok(events.some((event) => event.stage === "compose_media"));

@@ -1,15 +1,15 @@
 # 工作流映射
 
-## 采集工作流
+## 采集与原文补全工作流
 
-TrendForge 的采集层分三档：
+TrendForge 的简略信息采集层分两档，原文补全层分两档：
 
 - `aihot-source`：AI 热点信息最高优先级入口，优先使用 `https://aihot.virxact.com/aihot-skill/` 的 skill 信息，也可使用 AI HOT RSS。
 - `rsshub-source`：常规订阅和稳定源，用于非 AI HOT RSS/RSSHub 路由。
-- `browseract-fetcher`：疑难网页和需要浏览器上下文的完整原文补采。
-- `mediacrawler-fallback`：中文自媒体平台备用采集器，必须显式启用。
+- `browseract-fetcher`：选材后处理疑难网页和需要浏览器上下文的完整原文补全。
+- `mediacrawler-fallback`：中文自媒体平台原文补全备用入口，必须显式启用。
 
-MediaCrawler 不作为默认采集入口；它只在 AI HOT/RSSHub 无结果、BrowserAct 也无法稳定补采，且用户配置允许时触发。
+MediaCrawler 不作为默认采集入口；它只在 AI HOT/RSSHub 已产生候选、BrowserAct 无法稳定补全原文，且用户配置允许时触发。
 
 ## 公众号工作流
 
@@ -81,10 +81,10 @@ MediaCrawler 不作为默认采集入口；它只在 AI HOT/RSSHub 无结果、B
 
 | TrendForge 能力 | AI HOT | RSSHub | BrowserAct | MediaCrawler |
 | --- | --- | --- | --- | --- |
-| AI 热点 | skill / RSS / API | 普通 RSS 备用 | 补采原文 | 不默认负责 |
+| AI 热点 | skill / RSS / API | 普通 RSS 备用 | 选中后补全原文 | 不默认负责 |
 | 常规订阅 | AI HOT RSS | RSS URL | 不负责 | 不负责 |
 | 疑难网页 | 不负责 | 不负责 | 浏览器打开和抽取 | 仅备用 |
 | 中文自媒体平台 | 不负责 | 依赖 route | 浏览器补采 | 关键词/详情备用采集 |
 | 登录态复用 | 不需要 | 由 RSSHub route 决定 | 复用浏览器上下文 | 复用 CDP/登录态 |
-| 默认启用 | 是 | 是 | 是 | 否 |
-| 触发方式 | AI 信息默认入口 | 普通订阅或 AI HOT 失败后 | 验证/全文失败后 | 显式开启后的最后兜底 |
+| 默认启用 | 是 | 是 | 原文补全计划默认启用 | 否 |
+| 触发方式 | AI 信息默认入口 | 普通订阅或 AI HOT 失败后 | 选中候选缺少完整原文时 | 显式开启后的最后兜底 |

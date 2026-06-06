@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { createDefaultDraftGenerator } from "../../generator/src/index.js";
 import { createDefaultMediaComposer } from "../../media/src/index.js";
 import { createPlannedPublishers } from "../../publishers/src/index.js";
@@ -21,6 +23,7 @@ export interface PipelineDeps {
   sourceAdapters?: SourceAdapter[];
   fullTextProvider?: FullTextProvider;
   publisherHandoffDir?: string;
+  fullTextHandoffDir?: string;
 }
 
 function createPlannedFullTextProvider(): FullTextProvider {
@@ -38,6 +41,31 @@ function createPlannedFullTextProvider(): FullTextProvider {
 
 function defaultHandoffDir(runId: string, baseDir?: string): string {
   return baseDir ?? `workspace/runs/${runId}/publisher-handoffs`;
+}
+
+function defaultFullTextHandoffDir(runId: string, baseDir?: string): string {
+  return baseDir ?? `workspace/runs/${runId}/full-text-handoffs`;
+}
+
+async function writeFullTextHandoff(
+  runId: string,
+  item: SourceItem,
+  command: string[],
+  baseDir?: string
+): Promise<string> {
+  const dir = defaultFullTextHandoffDir(runId, baseDir);
+  await mkdir(dir, { recursive: true });
+  const artifactPath = path.join(dir, `browseract-${item.id}.json`);
+  await writeFile(artifactPath, JSON.stringify({
+    workflow: "browseract-full-text-acquisition",
+    fallbackWorkflow: "mediacrawler-full-text-fallback",
+    sourceItemId: item.id,
+    url: item.url,
+    command,
+    fallbackPolicy: "Use MediaCrawler only when explicitly enabled and compliance review passes.",
+    successSignal: "VerifiedArticle.fullText is populated and fetch_full_text event status becomes verified."
+  }, null, 2), "utf8");
+  return artifactPath;
 }
 
 export function createDefaultPipeline(deps: PipelineDeps) {
@@ -120,13 +148,16 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         if (!item.url.startsWith("http://") && !item.url.startsWith("https://")) continue;
 
         if (request.allowBrowserFallback !== false) {
+          const command = ["browseract", "stealth-extract", item.url];
+          const artifactPath = await writeFullTextHandoff(request.runId, item, command, deps.fullTextHandoffDir);
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
             adapter: "browseract",
             status: "planned",
             sourceItemId: item.id,
             evidenceUrl: item.url,
-            command: ["browseract", "stealth-extract", item.url],
+            command,
+            artifactPath,
             reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
           });
           const acquired = await fullTextProvider.acquire(item, article);

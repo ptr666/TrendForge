@@ -17,11 +17,9 @@
 - 用户接入的额外信息源
 - RSS 订阅
 - RSSHub 路由输出
-- BrowserAct 浏览器补采
-- MediaCrawler 备用采集
 - 其他手动导入源
 
-AI 热点信息默认优先级是：AI HOT skill -> AI HOT RSS -> RSSHub -> BrowserAct -> MediaCrawler。MediaCrawler 只在用户明确启用、目标平台需要、前几层无法满足时作为备用选择。
+AI 热点信息默认采集优先级是：AI HOT skill -> AI HOT RSS -> RSSHub。BrowserAct 和 MediaCrawler 不作为普通采集来源；它们在选材后负责完整原文补全，其中 MediaCrawler 只在用户明确启用、目标平台需要、BrowserAct 无法满足时作为备用选择。
 
 ### 2. 验证层
 
@@ -30,7 +28,7 @@ AI 热点信息默认优先级是：AI HOT skill -> AI HOT RSS -> RSSHub -> Brow
 - 判断信息是否可靠
 - 拉取完整原文或给出失败原因
 
-验证层优先使用普通 HTTP/RSS 内容，其次使用 BrowserAct 打开页面核验；如果目标是中文自媒体平台且 BrowserAct 无法稳定拿到候选内容，可以触发 MediaCrawler 备用采集。
+验证层优先使用 AI HOT/RSS 已提供的正文片段；摘要不足或原文缺失时，使用 BrowserAct 打开页面核验和补全；如果目标是中文自媒体平台且 BrowserAct 无法稳定拿到完整原文，可以触发 MediaCrawler 备用补全。
 
 ### 3. 选材层
 
@@ -120,7 +118,7 @@ AI 热点信息默认优先级是：AI HOT skill -> AI HOT RSS -> RSSHub -> Brow
 - 单人单账号
 - 内容生产主线
 - 发布适配器预留
-- AI HOT、RSSHub、BrowserAct、MediaCrawler 四类采集适配器设计
+- AI HOT、RSSHub 来源适配器，以及 BrowserAct、MediaCrawler 原文补全适配器设计
 
 暂不强行做：
 

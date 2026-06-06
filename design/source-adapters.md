@@ -2,12 +2,12 @@
 
 ## Summary
 
-TrendForge 第一版采用四层采集策略：
+TrendForge 第一版把简略信息采集和完整原文补全分开：
 
 1. AI HOT skill 负责 AI 热点信息的最高优先级采集。
 2. RSSHub 负责常规 RSS/RSSHub 订阅；AI HOT 自身的 RSS 可作为 AI HOT 的备用接入方式。
-3. BrowserAct 负责疑难网页、登录网页、动态网页和完整原文补采。
-4. MediaCrawler 作为自动备用采集器，只在明确启用且合规的场景下触发。
+3. BrowserAct 负责选材后的疑难网页、登录网页、动态网页和完整原文补全。
+4. MediaCrawler 作为原文补全备用入口，只在明确启用且合规的场景下触发。
 
 ## AI HOT
 
@@ -120,17 +120,23 @@ TrendForge 第一版采用四层采集策略：
 
 ## Fallback Order
 
-AI 信息默认顺序：
+AI 信息采集默认顺序：
 
 ```text
-AI HOT skill -> AI HOT RSS -> RSSHub -> BrowserAct -> MediaCrawler
+AI HOT skill -> AI HOT RSS -> RSSHub
+```
+
+原文补全默认顺序：
+
+```text
+BrowserAct -> MediaCrawler
 ```
 
 失败回退规则：
 
 - AI HOT skill 不可用：使用 AI HOT RSS。
 - AI HOT RSS 没有结果：进入 RSSHub 或其他普通 RSS/RSSHub 订阅。
-- RSSHub 没有结果：进入 BrowserAct。
+- RSSHub 只提供摘要或原文不足：选中后进入 BrowserAct 原文补全。
 - BrowserAct 无法拿到完整内容：如果允许，进入 MediaCrawler。
 - MediaCrawler 失败：记录失败原因，不阻塞其他候选项。
 

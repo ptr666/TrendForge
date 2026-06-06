@@ -21,12 +21,12 @@ TrendForge 是一个面向 AI 热点内容生产的本地工作台设计。
 - 公众号工作流蓝本：`wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，它管理 `wechat-official-account-shareable/wechat-official-account/` Node 工作流，并通过微信官方 API 创建草稿
 - 小红书工作流蓝本：`xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，它是围绕 `autoclaw-cc/xiaohongshu-skills` 与 Hermes 的安装、验证、排障和分享版配置文档
 
-## 采集策略
+## 采集与原文补全策略
 
 - AI HOT skill：AI 热点信息最高优先级入口，默认优先使用精选流；它也支持 RSS 接入。
 - RSSHub：常规订阅和非 AI HOT RSS/RSSHub 路由入口。
-- BrowserAct：疑难网页、登录网页、完整原文补采入口。
-- MediaCrawler：自动备用采集器，只在明确启用且合规场景下使用。
+- BrowserAct：选材后的疑难网页、登录网页、完整原文补全入口。
+- MediaCrawler：原文补全备用入口，只在明确启用且合规场景下使用。
 
 ## 项目结构
 
@@ -34,7 +34,7 @@ TrendForge 是一个面向 AI 热点内容生产的本地工作台设计。
 - `apps/cli`：本地命令入口。
 - `apps/web`：后续浏览器工作台占位。
 - `packages/core`：领域模型和 pipeline 编排。
-- `packages/sources`：RSSHub、BrowserAct、MediaCrawler 采集适配器。
+- `packages/sources`：AI HOT、RSS/RSSHub 来源适配器，以及 BrowserAct/MediaCrawler 原文补全计划适配器。
 - `packages/verifier`：原文验证与全文抽取。
 - `packages/selector`：候选内容打分和 Top N 选择。
 - `packages/generator`：平台化草稿生成。
