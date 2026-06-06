@@ -204,7 +204,7 @@ const server = http.createServer(async (req, res) => {
       : ["review", "wechat", "xhs"] satisfies Platform[];
     const result = await pipeline.run({
       runId: typeof body.runId === "string" ? body.runId : `run-${Date.now()}`,
-      query: typeof body.query === "string" ? body.query : "api-run",
+      query: typeof body.query === "string" ? body.query : aiHotDefaults.skillUrl,
       requestedPlatforms,
       allowBrowserFallback: body.allowBrowserFallback !== false,
       allowMediaCrawlerFallback: body.allowMediaCrawlerFallback === true,

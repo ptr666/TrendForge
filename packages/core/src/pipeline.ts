@@ -72,7 +72,7 @@ async function writeDraftArtifact(runId: string, draft: PlatformDraft, baseDir?:
     "",
     draft.body
   ].filter((line): line is string => line !== undefined).join("\n");
-  await writeFile(artifactPath, content, "utf8");
+  await writeFile(artifactPath, `\uFEFF${content}`, "utf8");
   return { ...draft, artifactPath };
 }
 

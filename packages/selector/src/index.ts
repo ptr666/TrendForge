@@ -18,7 +18,7 @@ export function createDefaultSelector(): Selector {
             ? "Partial source item kept for review."
             : "Failed item retained only for traceability.",
         targetPlatforms: ["review", "wechat", "xhs"],
-        angle: article.method === "aihot" ? "Prioritized AI HOT trend signal." : undefined,
+        angle: article.method === "aihot" ? "这是优先级最高的 AIHot 热点信号，适合先进入内容选题池。" : undefined,
         tags: [article.method, article.status]
       };
     },

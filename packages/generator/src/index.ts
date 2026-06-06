@@ -6,9 +6,9 @@ function baseDraft(platform: PlatformDraft["platform"], selection: CandidateSele
   const sourceText = article.fullText ?? article.failureReason ?? "No full text available yet.";
   const keyPoints = summary.keyPoints.map((point) => `- ${point}`).join("\n");
   const body = platform === "xhs"
-    ? `${summary.summary}\n\n${summary.angle}\n\n${summary.keyPoints.join("\n")}\n\n#AI #TrendWatch #ContentWorkflow`
+    ? `${summary.summary}\n\n${summary.angle}\n\n${summary.keyPoints.join("\n")}\n\n#AI热点 #趋势观察 #内容工作流`
     : platform === "wechat"
-      ? `# ${title}\n\n${summary.summary}\n\n## Why it matters\n\n${summary.angle}\n\n## Key signals\n\n${keyPoints}\n\n> Selection reason: ${selection.reason}`
+      ? `# ${title}\n\n${summary.summary}\n\n## 为什么值得关注\n\n${summary.angle}\n\n## 关键信息\n\n${keyPoints}\n\n> 选材理由：${selection.reason}`
       : `## ${title}\n\n${summary.summary}\n\n### Angle\n\n${summary.angle}\n\n### Key points\n\n${keyPoints}\n\n### Source excerpt\n\n${sourceText.slice(0, 1000)}\n\nSelection score: ${selection.score}\nReason: ${selection.reason}`;
   return {
     id: `${platform}-${selection.sourceItemId}`,

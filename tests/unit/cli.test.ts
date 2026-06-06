@@ -19,6 +19,14 @@ async function runCli(args: string[], runsDir: string): Promise<unknown> {
   return JSON.parse(stdout) as unknown;
 }
 
+async function runCliWithEnv(args: string[], runsDir: string, env: NodeJS.ProcessEnv): Promise<unknown> {
+  const { stdout } = await execFileAsync(process.execPath, [cliPath, ...args], {
+    env: { ...process.env, ...env, TRENDFORGE_RUNS_DIR: runsDir },
+    maxBuffer: 1024 * 1024
+  });
+  return JSON.parse(stdout) as unknown;
+}
+
 test("CLI can run RSS pipeline and read back run history events", async () => {
   const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-cli-runs-"));
 
@@ -71,6 +79,32 @@ test("CLI can run AIHot fixture pipeline and read back run history events", asyn
     assert.ok(events.events?.some((event) => event.stage === "collect" && event.adapter === "aihot"));
     assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
+  } finally {
+    await rm(runsDir, { recursive: true, force: true });
+  }
+});
+
+test("CLI defaults to AIHot skill URL when no query is provided", async () => {
+  const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-cli-default-aihot-"));
+
+  try {
+    const run = await runCliWithEnv(["run", "--run-id", "cli-default-aihot", "--top-n", "1"], runsDir, {
+      TRENDFORGE_AIHOT_FIXTURE: JSON.stringify({
+        items: [{
+          title: "默认 AIHot 信号",
+          url: "about:blank",
+          summary: "默认运行应该优先使用 AIHot skill。",
+          tags: ["fixture"]
+        }]
+      })
+    }) as {
+      sourceItems?: Array<{ collectorAdapter: string; title: string }>;
+      drafts?: Array<{ platform: string; body: string }>;
+    };
+
+    assert.equal(run.sourceItems?.[0]?.collectorAdapter, "aihot");
+    assert.equal(run.sourceItems?.[0]?.title, "默认 AIHot 信号");
+    assert.ok(run.drafts?.some((draft) => draft.platform === "wechat" && draft.body.includes("## 为什么值得关注")));
   } finally {
     await rm(runsDir, { recursive: true, force: true });
   }

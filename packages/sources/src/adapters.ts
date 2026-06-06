@@ -24,6 +24,7 @@ interface ManualSeed {
 
 interface AiHotRawItem {
   title?: string;
+  title_en?: string;
   url?: string;
   link?: string;
   summary?: string;
@@ -33,7 +34,15 @@ interface AiHotRawItem {
   pubDate?: string;
   id?: string;
   tags?: string[];
+  source?: string;
+  category?: string;
 }
+
+interface AiHotItemsResponse {
+  items?: unknown[];
+}
+
+const aiHotUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36 aihot-skill/0.2.0 TrendForge/0.1";
 
 function stableId(input: string): string {
   let hash = 0;
@@ -82,6 +91,23 @@ function parseRss(xml: string): RssRawItem[] {
       guid: readTag(block, "guid") ?? readTag(block, "id")
     };
   });
+}
+
+function parseItemsPayload(parsed: unknown): unknown[] {
+  return Array.isArray(parsed)
+    ? parsed
+    : typeof parsed === "object" && parsed && Array.isArray((parsed as AiHotItemsResponse).items)
+      ? (parsed as AiHotItemsResponse).items ?? []
+      : [];
+}
+
+function aiHotItemsUrl(source: string): string {
+  if (source.includes("/api/public/items")) return source;
+  const url = new URL("https://aihot.virxact.com/api/public/items");
+  url.searchParams.set("mode", "selected");
+  url.searchParams.set("take", process.env.TRENDFORGE_AIHOT_TAKE ?? "20");
+  url.searchParams.set("since", new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+  return url.toString();
 }
 
 function sourceItemFrom(adapter: SourceItem["collectorAdapter"], query: string, metadata?: Record<string, unknown>): SourceItem {
@@ -180,7 +206,7 @@ export class AiHotSourceAdapter implements SourceAdapter {
   async healthcheck() {
     return {
       ok: true,
-      message: "AI HOT adapter ready. Prefer skill data, then AI HOT RSS, then generic RSSHub."
+      message: "AI HOT adapter ready. Uses selected public items API before RSSHub fallback."
     };
   }
 
@@ -194,19 +220,21 @@ export class AiHotSourceAdapter implements SourceAdapter {
       return [{ title: payload, summary: payload, url: "about:blank", tags: ["aihot", "skill"] } satisfies AiHotRawItem];
     }
 
+    if (process.env.TRENDFORGE_AIHOT_FIXTURE && source.includes("aihot.virxact.com")) {
+      return parseItemsPayload(JSON.parse(process.env.TRENDFORGE_AIHOT_FIXTURE) as unknown);
+    }
+
     if (source.startsWith("{") || source.startsWith("[")) {
-      const parsed = JSON.parse(source) as unknown;
-      const items = Array.isArray(parsed)
-        ? parsed
-        : typeof parsed === "object" && parsed && "items" in parsed && Array.isArray((parsed as { items: unknown[] }).items)
-          ? (parsed as { items: unknown[] }).items
-          : [];
-      return items.filter((item) => typeof item === "object" && item !== null);
+      return parseItemsPayload(JSON.parse(source) as unknown).filter((item) => typeof item === "object" && item !== null);
     }
 
     if (source.startsWith("http://") || source.startsWith("https://")) {
       if (!source.includes("aihot") && !source.includes("virxact")) return [];
-      const response = await fetch(source);
+      const response = await fetch(aiHotItemsUrl(source), {
+        headers: {
+          "user-agent": aiHotUserAgent
+        }
+      });
       if (!response.ok) {
         throw new Error(`AI HOT fetch failed: ${response.status} ${response.statusText}`);
       }
@@ -214,12 +242,7 @@ export class AiHotSourceAdapter implements SourceAdapter {
       if (text.trim().startsWith("<rss") || text.trim().startsWith("<?xml") || text.trim().startsWith("<feed")) {
         return parseRss(text);
       }
-      const parsed = JSON.parse(text) as unknown;
-      return Array.isArray(parsed)
-        ? parsed
-        : typeof parsed === "object" && parsed && "items" in parsed && Array.isArray((parsed as { items: unknown[] }).items)
-          ? (parsed as { items: unknown[] }).items
-          : [];
+      return parseItemsPayload(JSON.parse(text) as unknown);
     }
 
     return [];
@@ -243,7 +266,10 @@ export class AiHotSourceAdapter implements SourceAdapter {
       tags: [...(raw.tags ?? []), "aihot"],
       metadata: {
         accessMode: raw.tags?.includes("rss") ? "rss" : "skill",
-        sourcePriority: 1
+        sourcePriority: 1,
+        source: raw.source,
+        category: raw.category,
+        title_en: raw.title_en
       }
     };
   }

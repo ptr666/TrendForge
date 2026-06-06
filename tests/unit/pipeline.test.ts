@@ -29,6 +29,8 @@ test("pipeline runs from AI HOT source to platform draft plans and events", asyn
   assert.equal(result.sourceItems[0]?.collectorAdapter, "aihot");
   assert.equal(result.summaries.length, 1);
   assert.equal(result.drafts.length, 3);
+  assert.ok(result.drafts.some((draft) => draft.platform === "wechat" && draft.body.includes("## 为什么值得关注")));
+  assert.ok(result.drafts.some((draft) => draft.platform === "xhs" && draft.body.includes("#AI热点")));
   assert.ok(result.assets.some((asset) => asset.type === "cover"));
   assert.ok(result.assets.some((asset) => asset.type === "xhs_image"));
   assert.ok(result.assets.every((asset) => typeof asset.prompt === "string" && asset.prompt.length > 0));

@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
+import { aiHotDefaults } from "../../../packages/config/src/index.js";
 import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { Platform } from "../../../packages/core/src/types.js";
@@ -54,7 +55,7 @@ function readTopN(): number | undefined {
 async function readQuery(): Promise<string> {
   const queryFile = readOption("--query-file");
   if (queryFile) return readFile(queryFile, "utf8");
-  return readOption("--query") ?? (process.argv.slice(3).filter((arg) => !arg.startsWith("--")).join(" ") || "manual-run");
+  return readOption("--query") ?? aiHotDefaults.skillUrl;
 }
 
 function readRunId(): string {

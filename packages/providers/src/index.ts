@@ -35,20 +35,20 @@ export function createDefaultTextProvider(): TextProvider {
   return {
     async summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary> {
       const sourceText = compactText(article.fullText ?? article.failureReason ?? "No full text available.", 1200);
-      const firstSentence = sourceText.split(/[。.!?！？]/).find((part) => part.trim().length > 0)?.trim() ?? sourceText;
+      const firstSentence = sourceText.split(/[。！？.!?]/).find((part) => part.trim().length > 0)?.trim() ?? sourceText;
       const keyPoints = sourceText
-        .split(/[。.!?！？\n]/)
+        .split(/[。！？.!?\n]/)
         .map((part) => part.trim())
         .filter((part) => part.length > 0)
         .slice(0, 3);
 
       return {
         sourceItemId: article.sourceItemId,
-        title: `Trend signal ${article.sourceItemId}`,
-        summary: firstSentence || "No summary available.",
-        angle: selection.angle ?? "AI trend with practical publishing value.",
+        title: `AI 趋势信号 ${article.sourceItemId}`,
+        summary: firstSentence || "暂无可用摘要。",
+        angle: selection.angle ?? "这个信号具备 AI 趋势观察和内容发布价值。",
         keyPoints: keyPoints.length > 0 ? keyPoints : [selection.reason],
-        riskNotes: article.status === "verified" ? [] : [article.failureReason ?? `Article status is ${article.status}.`]
+        riskNotes: article.status === "verified" ? [] : [article.failureReason ?? `文章状态为 ${article.status}。`]
       };
     }
   };
@@ -107,9 +107,9 @@ interface ChatCompletionResponse {
 function readSummaryJson(content: string): Omit<ArticleSummary, "sourceItemId"> {
   const parsed = JSON.parse(content) as Partial<Omit<ArticleSummary, "sourceItemId">>;
   return {
-    title: String(parsed.title ?? "Untitled AI trend summary"),
-    summary: String(parsed.summary ?? "No summary returned."),
-    angle: String(parsed.angle ?? "AI trend with practical publishing value."),
+    title: String(parsed.title ?? "未命名 AI 趋势摘要"),
+    summary: String(parsed.summary ?? "模型未返回摘要。"),
+    angle: String(parsed.angle ?? "这个信号具备 AI 趋势观察和内容发布价值。"),
     keyPoints: Array.isArray(parsed.keyPoints) ? parsed.keyPoints.map(String) : [],
     riskNotes: Array.isArray(parsed.riskNotes) ? parsed.riskNotes.map(String) : []
   };
@@ -135,7 +135,7 @@ export function createOpenAICompatibleTextProvider(options: OpenAICompatibleOpti
           messages: [
             {
               role: "system",
-              content: "Summarize AI trend source text for multi-platform publishing. Return strict JSON with title, summary, angle, keyPoints, and riskNotes."
+              content: "你是中文 AI 热点内容编辑。请把来源文本总结为适合公众号和小红书二次创作的中文素材。必须返回严格 JSON，字段为 title、summary、angle、keyPoints、riskNotes；除专有名词外，所有字段内容都使用简体中文。"
             },
             {
               role: "user",
