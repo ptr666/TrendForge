@@ -48,6 +48,9 @@ Current source workflow facts:
 - AI trend information enters first through AI HOT: `https://aihot.virxact.com/aihot-skill/`.
 - AI HOT RSS is the same-source fallback and stays ahead of generic RSSHub routes.
 - RSSHub remains the general RSS/RSSHub adapter for non-AI HOT sources.
+- RSS and AI HOT source items may contain brief text, but original-text acquisition belongs to BrowserAct or MediaCrawler after selection.
+- BrowserAct is the default planned command path for selected HTTP source items that still need original text.
+- MediaCrawler is never a default original-text acquisition path; it requires explicit enablement and compliance review.
 
 The skill draft lives at `docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`.
 

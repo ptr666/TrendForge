@@ -40,3 +40,74 @@ test("pipeline runs from AI HOT source to platform draft plans and events", asyn
 
   await rm(rootDir, { recursive: true, force: true });
 });
+
+test("pipeline plans BrowserAct full-text acquisition for selected HTTP source items", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-browseract-plan-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({ store });
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (() => {
+    throw new Error("HTTP fetch should not be used for original-text acquisition.");
+  }) as typeof fetch;
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-browseract-plan",
+      query: JSON.stringify({
+        items: [{
+          title: "AI model ships new agent runtime",
+          url: "https://example.com/agent-runtime",
+          summary: "Brief AIHot signal that needs original article acquisition before final content.",
+          tags: ["featured"]
+        }]
+      }),
+      requestedPlatforms: ["review"],
+      topN: 1
+    });
+
+    const events = await store.readEvents("run-browseract-plan");
+    const browserActPlan = events.find((event) => event.stage === "fetch_full_text" && event.adapter === "browseract");
+
+    assert.equal(result.status, "success");
+    assert.equal(result.verifiedArticles[0]?.status, "partial");
+    assert.equal(result.verifiedArticles[0]?.method, "aihot");
+    assert.ok(browserActPlan);
+    assert.equal(browserActPlan?.status, "planned");
+    assert.equal(browserActPlan?.sourceItemId, result.sourceItems[0]?.id);
+  } finally {
+    globalThis.fetch = originalFetch;
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline does not plan MediaCrawler full-text acquisition unless explicitly enabled", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-mediacrawler-gate-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({ store });
+
+  try {
+    await pipeline.run({
+      runId: "run-mediacrawler-gate",
+      query: JSON.stringify({
+        items: [{
+          title: "AI app adds workflow automation",
+          url: "https://example.com/workflow-automation",
+          summary: "Brief signal that still needs original text.",
+          tags: ["featured"]
+        }]
+      }),
+      requestedPlatforms: ["review"],
+      allowBrowserFallback: false,
+      topN: 1
+    });
+
+    const events = await store.readEvents("run-mediacrawler-gate");
+    const mediaCrawlerPlan = events.find((event) => event.stage === "fetch_full_text" && event.adapter === "mediacrawler");
+    const skippedPlan = events.find((event) => event.stage === "fetch_full_text" && event.status === "skipped");
+
+    assert.equal(mediaCrawlerPlan, undefined);
+    assert.ok(skippedPlan);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});

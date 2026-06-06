@@ -92,6 +92,43 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       }
 
       const selections = selector.selectTopN(scored, request.topN ?? 5);
+      for (const selection of selections) {
+        const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
+        const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
+        if (!article || !item || article.status === "verified") continue;
+        if (!item.url.startsWith("http://") && !item.url.startsWith("https://")) continue;
+
+        if (request.allowBrowserFallback !== false) {
+          await deps.store.appendEvent(request.runId, {
+            stage: "fetch_full_text",
+            adapter: "browseract",
+            status: "planned",
+            sourceItemId: item.id,
+            evidenceUrl: item.url,
+            command: ["browseract", "stealth-extract", item.url],
+            reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
+          });
+        } else if (request.allowMediaCrawlerFallback === true) {
+          await deps.store.appendEvent(request.runId, {
+            stage: "fetch_full_text",
+            adapter: "mediacrawler",
+            status: "planned",
+            sourceItemId: item.id,
+            evidenceUrl: item.url,
+            command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
+            reason: "BrowserAct disabled; MediaCrawler fallback requires explicit enablement and compliance review."
+          });
+        } else {
+          await deps.store.appendEvent(request.runId, {
+            stage: "fetch_full_text",
+            status: "skipped",
+            sourceItemId: item.id,
+            evidenceUrl: item.url,
+            reason: "Original text acquisition requires BrowserAct or explicit MediaCrawler fallback."
+          });
+        }
+      }
+
       const summaries = [];
       const drafts: PlatformDraft[] = [];
       for (const selection of selections) {
