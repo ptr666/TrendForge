@@ -15,13 +15,15 @@ import type {
   SourceItem,
   SourceAdapter,
   VerifiedArticle,
-  FullTextProvider
+  FullTextProvider,
+  TextProvider
 } from "./types.js";
 
 export interface PipelineDeps {
   store: RunStore;
   sourceAdapters?: SourceAdapter[];
   fullTextProvider?: FullTextProvider;
+  textProvider?: TextProvider;
   publisherHandoffDir?: string;
   fullTextHandoffDir?: string;
 }
@@ -72,7 +74,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
   const verifier = createDefaultVerifier();
   const selector = createDefaultSelector();
   const generator = createDefaultDraftGenerator();
-  const textProvider = createDefaultTextProvider();
+  const textProvider = deps.textProvider ?? createDefaultTextProvider();
   const media = createDefaultMediaComposer();
   const publishers = createPlannedPublishers();
   const fullTextProvider = deps.fullTextProvider ?? createPlannedFullTextProvider();

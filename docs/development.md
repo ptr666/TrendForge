@@ -54,7 +54,9 @@ Current source workflow facts:
 - RSS and AI HOT source items may contain brief text, but original-text acquisition belongs to BrowserAct or MediaCrawler after selection.
 - BrowserAct is the default planned command path for selected HTTP source items that still need original text.
 - BrowserAct planned acquisition writes a local JSON handoff artifact under `workspace/runs/<runId>/full-text-handoffs/` by default, including the source URL, command, success signal, and MediaCrawler fallback policy.
-- `FullTextProvider` is the pipeline seam for plugging in real BrowserAct or MediaCrawler extraction; tests should prove acquired full text feeds summaries and drafts.
+- `FullTextProvider` is the pipeline seam for plugging in real BrowserAct or MediaCrawler extraction; `TRENDFORGE_ENABLE_BROWSERACT=1` enables the command-backed BrowserAct provider.
+- `TextProvider` is the pipeline seam for model summaries; `TRENDFORGE_TEXT_PROVIDER=openai-compatible` enables the OpenAI-compatible chat-completions provider.
+- Tests should prove acquired full text and model summaries feed downstream drafts.
 - MediaCrawler is never a default original-text acquisition path; it requires explicit enablement and compliance review.
 
 The skill draft lives at `docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`.

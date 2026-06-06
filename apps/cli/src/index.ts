@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
+import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { Platform } from "../../../packages/core/src/types.js";
 
@@ -60,7 +61,7 @@ async function main(): Promise<void> {
   }
 
   const store = createRunStore();
-  const pipeline = createDefaultPipeline({ store });
+  const pipeline = createDefaultPipeline({ store, ...createRuntimeProviders() });
 
   if (command === "runs") {
     console.log(JSON.stringify({ runs: await store.listRuns() }, null, 2));

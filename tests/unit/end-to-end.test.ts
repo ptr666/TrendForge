@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createDefaultPipeline } from "../../packages/core/src/pipeline.js";
+import { createOpenAICompatibleTextProvider } from "../../packages/providers/src/index.js";
 import { createRunStore } from "../../packages/storage/src/run-store.js";
 import type { FullTextProvider } from "../../packages/core/src/types.js";
 
@@ -123,6 +124,44 @@ test("selected RSS item can use BrowserAct full text before summary and drafts",
     assert.equal(savedRun?.summaries[0]?.summary, "Complete BrowserAct article text");
     assert.ok(savedRun?.drafts.some((draft) => draft.body.includes("Complete BrowserAct article text")));
     assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "verified"));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline can use OpenAI-compatible text provider for summaries and drafts", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-model-provider-"));
+  const store = createRunStore({ rootDir });
+  const textProvider = createOpenAICompatibleTextProvider({
+    baseUrl: "https://models.example.test/v1",
+    model: "summary-model",
+    fetchImpl: async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            title: "Model generated AI title",
+            summary: "Model generated summary.",
+            angle: "Model angle",
+            keyPoints: ["Model point"],
+            riskNotes: []
+          })
+        }
+      }]
+    }), { status: 200 })
+  });
+  const pipeline = createDefaultPipeline({ store, textProvider });
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-model-provider",
+      query: rss,
+      requestedPlatforms: ["review", "wechat", "xhs"],
+      topN: 1
+    });
+
+    assert.equal(result.summaries[0]?.title, "Model generated AI title");
+    assert.equal(result.summaries[0]?.summary, "Model generated summary.");
+    assert.ok(result.drafts.some((draft) => draft.body.includes("Model generated summary.")));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
