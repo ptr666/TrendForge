@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { SourceSubscription } from "../../core/src/types.js";
 
@@ -28,13 +28,30 @@ function isSubscription(value: unknown): value is SourceSubscription {
     && typeof candidate.enabled === "boolean";
 }
 
+export function normalizeSubscriptions(value: unknown): SourceSubscription[] {
+  const parsed = value as Partial<SubscriptionConfig>;
+  if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.subscriptions)) return [];
+  return parsed.subscriptions.filter(isSubscription);
+}
+
 export async function readSubscriptions(configPath = path.resolve("workspace", "sources", "subscriptions.json")): Promise<SourceSubscription[]> {
   try {
-    const parsed = JSON.parse(await readFile(configPath, "utf8")) as Partial<SubscriptionConfig>;
-    if (!Array.isArray(parsed.subscriptions)) return defaultSubscriptions;
-    const subscriptions = parsed.subscriptions.filter(isSubscription);
+    const subscriptions = normalizeSubscriptions(JSON.parse(await readFile(configPath, "utf8")) as unknown);
     return subscriptions.length > 0 ? subscriptions : defaultSubscriptions;
   } catch {
     return defaultSubscriptions;
   }
+}
+
+export async function writeSubscriptions(
+  subscriptions: SourceSubscription[],
+  configPath = path.resolve("workspace", "sources", "subscriptions.json")
+): Promise<SourceSubscription[]> {
+  const valid = normalizeSubscriptions({ subscriptions });
+  if (valid.length !== subscriptions.length) {
+    throw new Error("Invalid subscription config.");
+  }
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, JSON.stringify({ subscriptions: valid }, null, 2), "utf8");
+  return valid;
 }

@@ -26,6 +26,7 @@ export interface PipelineDeps {
   textProvider?: TextProvider;
   publisherHandoffDir?: string;
   fullTextHandoffDir?: string;
+  draftArtifactDir?: string;
 }
 
 function createPlannedFullTextProvider(): FullTextProvider {
@@ -47,6 +48,32 @@ function defaultHandoffDir(runId: string, baseDir?: string): string {
 
 function defaultFullTextHandoffDir(runId: string, baseDir?: string): string {
   return baseDir ?? `workspace/runs/${runId}/full-text-handoffs`;
+}
+
+function defaultDraftArtifactDir(runId: string, baseDir?: string): string {
+  return baseDir ?? `workspace/runs/${runId}/drafts`;
+}
+
+async function writeDraftArtifact(runId: string, draft: PlatformDraft, baseDir?: string): Promise<PlatformDraft> {
+  const dir = defaultDraftArtifactDir(runId, baseDir);
+  await mkdir(dir, { recursive: true });
+  const artifactPath = path.join(dir, `${draft.platform}-${draft.sourceItemId}.md`);
+  const content = [
+    "---",
+    `id: ${draft.id}`,
+    `platform: ${draft.platform}`,
+    `sourceItemId: ${draft.sourceItemId}`,
+    `title: ${JSON.stringify(draft.title)}`,
+    draft.digest ? `digest: ${JSON.stringify(draft.digest)}` : undefined,
+    draft.tone ? `tone: ${draft.tone}` : undefined,
+    "---",
+    "",
+    `# ${draft.title}`,
+    "",
+    draft.body
+  ].filter((line): line is string => line !== undefined).join("\n");
+  await writeFile(artifactPath, content, "utf8");
+  return { ...draft, artifactPath };
 }
 
 async function writeFullTextHandoff(
@@ -202,13 +229,13 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         summaries.push(summary);
         await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
         if (request.requestedPlatforms.includes("review")) {
-          drafts.push(await generator.generateReviewDraft(selection, article, summary));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir));
         }
         if (request.requestedPlatforms.includes("wechat")) {
-          drafts.push(await generator.generateWechatDraft(selection, article, summary));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir));
         }
         if (request.requestedPlatforms.includes("xhs")) {
-          drafts.push(await generator.generateXhsDraft(selection, article, summary));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir));
         }
       }
       await deps.store.appendEvent(request.runId, { stage: "generate", count: drafts.length });

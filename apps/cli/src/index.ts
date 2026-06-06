@@ -44,6 +44,13 @@ function readPlatforms(): Platform[] {
   return platforms.length > 0 ? platforms : ["review"];
 }
 
+function readTopN(): number | undefined {
+  const value = readOption("--top-n") ?? readOption("--topN");
+  if (!value) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
 async function readQuery(): Promise<string> {
   const queryFile = readOption("--query-file");
   if (queryFile) return readFile(queryFile, "utf8");
@@ -96,7 +103,8 @@ async function main(): Promise<void> {
       allowBrowserFallback: !hasFlag("--no-browser-fallback"),
       allowMediaCrawlerFallback: hasFlag("--allow-mediacrawler"),
       allowRealDraft: hasFlag("--real-draft"),
-      dryRunPublish: !hasFlag("--real-publish")
+      dryRunPublish: !hasFlag("--real-publish"),
+      topN: readTopN()
     });
     console.log(JSON.stringify(result, null, 2));
     return;
@@ -120,7 +128,8 @@ async function main(): Promise<void> {
       allowBrowserFallback: !hasFlag("--no-browser-fallback"),
       allowMediaCrawlerFallback: hasFlag("--allow-mediacrawler"),
       allowRealDraft: hasFlag("--real-draft"),
-      dryRunPublish: !hasFlag("--real-publish")
+      dryRunPublish: !hasFlag("--real-publish"),
+      topN: readTopN()
     });
     console.log(JSON.stringify(result, null, 2));
     return;

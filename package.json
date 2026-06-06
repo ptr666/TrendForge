@@ -9,6 +9,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "cli": "node dist/apps/cli/src/index.js",
     "api": "node dist/apps/api/src/server.js",
+    "web:dev": "vite --host 127.0.0.1 apps/web",
+    "web:build": "vite build apps/web",
+    "web:preview": "vite preview --host 127.0.0.1 apps/web",
     "test": "node --test \"dist/tests/**/*.test.js\""
   },
   "engines": {
@@ -16,6 +19,12 @@
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
-    "typescript": "^5.5.0"
+    "@types/react": "^19.2.16",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.2",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "typescript": "^5.5.0",
+    "vite": "^8.0.16"
   }
 }

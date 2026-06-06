@@ -117,17 +117,17 @@ export class RssHubSourceAdapter implements SourceAdapter {
       return parseRss(xml);
     }
 
-    if (source.endsWith(".xml") || source.endsWith(".rss")) {
-      const xml = await readFile(path.resolve(source), "utf8");
-      return parseRss(xml);
-    }
-
     if (source.startsWith("http://") || source.startsWith("https://")) {
       const response = await fetch(source);
       if (!response.ok) {
         throw new Error(`RSSHub fetch failed: ${response.status} ${response.statusText}`);
       }
       const xml = await response.text();
+      return parseRss(xml);
+    }
+
+    if (source.endsWith(".xml") || source.endsWith(".rss")) {
+      const xml = await readFile(path.resolve(source), "utf8");
       return parseRss(xml);
     }
 

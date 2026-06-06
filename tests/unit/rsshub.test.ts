@@ -27,3 +27,23 @@ test("rsshub adapter parses RSS XML into source items", async () => {
   assert.equal(item.url, "https://example.com/ai-trend");
   assert.equal(item.summary, "Fresh AI signal.");
 });
+
+test("rsshub adapter fetches RSS URLs before treating .xml as local paths", async () => {
+  const adapter = new RssHubSourceAdapter();
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.equal(String(input), "https://example.com/feed.xml");
+    return new Response(`<?xml version="1.0"?>
+<rss version="2.0"><channel><item><title>Remote RSS item</title><link>https://example.com/article</link><description>Remote summary</description></item></channel></rss>`);
+  }) as typeof fetch;
+
+  try {
+    const raw = await adapter.collect("https://example.com/feed.xml");
+    const item = adapter.normalize(raw[0]);
+
+    assert.equal(item.title, "Remote RSS item");
+    assert.equal(item.url, "https://example.com/article");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

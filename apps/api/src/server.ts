@@ -1,11 +1,15 @@
 import http from "node:http";
+import { access } from "node:fs/promises";
+import path from "node:path";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
 import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
-import { readSubscriptions } from "../../../packages/config/src/subscriptions.js";
+import { readSubscriptions, writeSubscriptions } from "../../../packages/config/src/subscriptions.js";
+import { MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
 import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
+import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../../packages/providers/src/index.js";
 import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
-import type { Platform } from "../../../packages/core/src/types.js";
+import type { CandidateSelection, Platform, SourceItem, VerifiedArticle } from "../../../packages/core/src/types.js";
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
@@ -26,11 +30,170 @@ function send(res: http.ServerResponse, statusCode: number, body: unknown): void
   res.end(JSON.stringify(body, null, 2));
 }
 
+function applyCors(res: http.ServerResponse): void {
+  res.setHeader("access-control-allow-origin", process.env.TRENDFORGE_CORS_ORIGIN ?? "http://127.0.0.1:5173");
+  res.setHeader("access-control-allow-methods", "GET,POST,PUT,OPTIONS");
+  res.setHeader("access-control-allow-headers", "content-type");
+}
+
+function maskSecret(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  return value.length <= 4 ? "****" : `${"*".repeat(Math.max(4, value.length - 4))}${value.slice(-4)}`;
+}
+
+function providerState() {
+  return {
+    browserAct: {
+      enabled: process.env.TRENDFORGE_ENABLE_BROWSERACT === "1",
+      command: process.env.TRENDFORGE_BROWSERACT_COMMAND || "browser-act"
+    },
+    text: {
+      provider: process.env.TRENDFORGE_TEXT_PROVIDER ?? "deterministic",
+      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? "https://api.openai.com/v1",
+      model: process.env.TRENDFORGE_MODEL_NAME ?? "gpt-4.1-mini",
+      keyConfigured: Boolean(process.env.TRENDFORGE_MODEL_API_KEY),
+      keyPreview: maskSecret(process.env.TRENDFORGE_MODEL_API_KEY)
+    },
+    mediaCrawler: mediaCrawlerDefaults
+  };
+}
+
+function sourceItemFromUrl(url: string): SourceItem {
+  return {
+    id: `verify-${Buffer.from(url).toString("base64url").slice(0, 16)}`,
+    sourceType: "manual_url",
+    collectorAdapter: "rsshub",
+    complianceStatus: "not_required",
+    title: url,
+    url,
+    summary: "Manual verification URL."
+  };
+}
+
+async function exists(targetPath: string): Promise<boolean> {
+  try {
+    await access(targetPath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 const server = http.createServer(async (req, res) => {
   res.setHeader("content-type", "application/json; charset=utf-8");
+  applyCors(res);
+
+  if (req.method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
 
   if (req.method === "GET" && req.url === "/health") {
     send(res, 200, { ok: true, service: "trendforge-api" });
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/providers") {
+    send(res, 200, providerState());
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/subscriptions") {
+    send(res, 200, { subscriptions: await readSubscriptions() });
+    return;
+  }
+
+  if (req.method === "PUT" && req.url === "/subscriptions") {
+    const body = await readJsonBody(req);
+    const subscriptions = await writeSubscriptions(Array.isArray(body.subscriptions) ? body.subscriptions as never : []);
+    send(res, 200, { subscriptions });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/subscriptions/validate") {
+    const body = await readJsonBody(req);
+    const source = typeof body.source === "string" ? body.source : "";
+    const adapter = new RssHubSourceAdapter();
+    const raw = await adapter.collect(source);
+    const items = raw.map((item) => adapter.normalize(item)).slice(0, 10);
+    send(res, 200, { ok: items.length > 0, count: items.length, items });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/rss") {
+    const body = await readJsonBody(req);
+    const source = typeof body.source === "string" ? body.source : "";
+    const adapter = new RssHubSourceAdapter();
+    const raw = await adapter.collect(source);
+    send(res, 200, { ok: raw.length > 0, items: raw.map((item) => adapter.normalize(item)).slice(0, 10) });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/browseract") {
+    const body = await readJsonBody(req);
+    const url = typeof body.url === "string" ? body.url : "";
+    const item = sourceItemFromUrl(url);
+    const article: VerifiedArticle = {
+      sourceItemId: item.id,
+      status: "partial",
+      method: "manual",
+      evidenceUrl: url,
+      failureReason: "Manual BrowserAct verification."
+    };
+    const result = await createBrowserActFullTextProvider({
+      command: process.env.TRENDFORGE_BROWSERACT_COMMAND || "browser-act"
+    }).acquire(item, article);
+    send(res, 200, {
+      ok: result.status === "verified",
+      status: result.status,
+      method: result.method,
+      evidenceUrl: result.evidenceUrl,
+      textLength: result.fullText?.length ?? 0,
+      preview: result.fullText?.slice(0, 800),
+      failureReason: result.failureReason
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/mediacrawler") {
+    const body = await readJsonBody(req);
+    const enabled = body.enabled === true;
+    const vendorDir = path.resolve("vendor", "mediacrawler");
+    const adapter = new MediaCrawlerFallbackAdapter(enabled);
+    send(res, 200, {
+      ok: enabled && await exists(path.join(vendorDir, "main.py")),
+      enabled,
+      vendorDir,
+      hasMain: await exists(path.join(vendorDir, "main.py")),
+      hasPyproject: await exists(path.join(vendorDir, "pyproject.toml")),
+      health: await adapter.healthcheck(),
+      compliance: adapter.checkCompliance()
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/verify/model") {
+    const article: VerifiedArticle = {
+      sourceItemId: "verify-model",
+      status: "verified",
+      method: "manual",
+      fullText: "AI agents are moving from demos into real content operations. Summarize this trend for publishing."
+    };
+    const selection: CandidateSelection = {
+      sourceItemId: article.sourceItemId,
+      score: 100,
+      reason: "Model verification request.",
+      targetPlatforms: ["review", "wechat", "xhs"],
+      angle: "AI workflow verification",
+      tags: ["verification"]
+    };
+    const summary = await createOpenAICompatibleTextProvider({
+      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? "https://api.deepseek.com",
+      apiKey: process.env.TRENDFORGE_MODEL_API_KEY,
+      model: process.env.TRENDFORGE_MODEL_NAME ?? "deepseek-v4-flash"
+    }).summarize(article, selection);
+    send(res, 200, { ok: true, summary });
     return;
   }
 
@@ -46,7 +209,8 @@ const server = http.createServer(async (req, res) => {
       allowBrowserFallback: body.allowBrowserFallback !== false,
       allowMediaCrawlerFallback: body.allowMediaCrawlerFallback === true,
       allowRealDraft: body.allowRealDraft === true,
-      dryRunPublish: body.dryRunPublish !== false
+      dryRunPublish: body.dryRunPublish !== false,
+      topN: typeof body.topN === "number" ? body.topN : undefined
     });
     send(res, 200, result);
     return;

@@ -51,6 +51,7 @@ export interface PlatformDraft {
   platform: Platform;
   title: string;
   body: string;
+  artifactPath?: string;
   digest?: string;
   tone?: string;
   tags?: string[];
