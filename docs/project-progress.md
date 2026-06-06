@@ -1,0 +1,62 @@
+# TrendForge Project Progress
+
+This document defines how TrendForge development is sequenced and tracked. It is the long-lived project progress guide, not a temporary task note.
+
+## Project Goal
+
+Phase 1 focuses on making the local AI trend content pipeline real and observable:
+
+```text
+source input -> verification -> selection -> platform draft -> media planning -> publish adapter state -> run history
+```
+
+The first phase should deepen a runnable pipeline instead of horizontally filling every package.
+
+## Progress Model
+
+Work is tracked as end-to-end vertical slices. Each slice should produce behavior that can be demonstrated or verified independently.
+
+Allowed status values:
+
+- `planned`: accepted direction, not started.
+- `in-progress`: active work exists.
+- `blocked`: cannot progress without a missing decision, dependency, credential, external workflow, or environment.
+- `done`: implementation, verification, and document sync are complete.
+
+Detailed PRDs and implementation issues live in `.scratch/<feature-slug>/` as described in `docs/agents/issue-tracker.md`.
+
+## Phase 1 Slices
+
+| Order | Slice | Status | Verification signal | Notes |
+| --- | --- | --- | --- | --- |
+| 1 | AI HOT skill input runs to a review draft | done | Pipeline run returns AI HOT source items, verified articles, selections, summaries, drafts, assets, publish plans, and run events | Proves the highest-priority AI trend path with deterministic providers. |
+| 2 | AI HOT RSS and generic RSS/RSSHub fallback run to a review draft | in-progress | Pipeline can prioritize AI HOT, keep RSSHub as generic RSS, and parse RSS fixtures | AI HOT RSS live endpoint wiring remains future work. |
+| 3 | Verification failure creates BrowserAct planned command and diagnosable run events | planned | Run events show fallback intent and reason without executing real browser automation | Keeps difficult pages observable and safe by default. |
+| 4 | Selection and platform draft generation have stable test surfaces | planned | Tests verify selected articles produce review, WeChat, and XHS draft shapes through public interfaces | Stabilizes downstream adapter work. |
+| 5 | WeChat draft maps to the `wechat-official-account-workflow` skill contract | planned | Dry-run publisher or adapter output contains the expected brief, Markdown, preview, check, cover strategy, official API credential/IP whitelist checks, and draft creation plan | Uses `trendforge-adapter-contract`; implementation uses the official WeChat API. |
+| 6 | XHS draft maps to the `xhs-browser-draft-setup` skill workflow | planned | Dry-run adapter output contains title, body, image plan, Hermes/bridge/login checks, share-safe guidance, and save-draft plan | Uses `trendforge-adapter-contract`; implementation provenance is `xiaohongshu-skills` + Hermes. |
+| 7 | CLI/API can query run history, items, and drafts | done | CLI/API can inspect saved runs, latest generated artifacts, sources, publishers, and run events | Makes local operation inspectable. |
+| 8 | Browser workbench begins after the pipeline is inspectable | planned | `apps/web` exposes the first useful local workflow backed by existing API/run state | Do not start before earlier slices are usable. |
+
+## Per-Slice Definition of Done
+
+A slice is `done` only when:
+
+- The behavior is reachable through a public interface such as CLI, API, pipeline, or run store.
+- There is a runnable test, command, or explicit human verification signal.
+- Adapter-related work has passed the `trendforge-adapter-contract` checklist.
+- Any PRD or implementation issue under `.scratch/<feature-slug>/` reflects the final behavior.
+- Stable design changes are reflected in `design/`, `CONTEXT.md`, or `docs/adr/` when appropriate.
+- Temporary docs in `docs/working/` are deleted or archived if they are no longer useful.
+
+## Document Sync Loop
+
+Development and documentation move together:
+
+1. Clarify the request with `grill-me` or `grill-with-docs`.
+2. Write the PRD and issues under `.scratch/<feature-slug>/`.
+3. Implement with `tdd`, one behavior at a time.
+4. Update stable docs only when the implementation proves the decision is durable.
+5. Run `trendforge-doc-lifecycle` cleanup before marking the slice `done`.
+
+Old working notes do not override current code, tests, design docs, or user instructions. If a document conflicts with implementation reality, resolve the conflict explicitly before continuing.

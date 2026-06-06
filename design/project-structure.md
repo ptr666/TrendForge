@@ -55,8 +55,8 @@ TrendForge/
 
 ## External Workflows
 
-- `workflows/wechat-official`：公众号工作流封装入口，指向现有 Node 工作流。
-- `workflows/xhs-browser-draft`：小红书浏览器草稿链路封装入口，指向现有 bridge/CLI 文档。
+- `workflows/wechat-official`：公众号工作流封装入口，指向 `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md` 和对应 Node 工作流。
+- `workflows/xhs-browser-draft`：小红书浏览器草稿链路封装入口，指向 `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`。
 - `vendor`：外部项目手动放置区，默认不下载 BrowserAct、RSSHub、MediaCrawler。
 
 ## Workspace

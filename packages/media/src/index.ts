@@ -1,6 +1,7 @@
-import type { MediaAsset, MediaComposer, PlatformDraft } from "../../core/src/types.js";
+import { createDefaultImageProvider } from "../../providers/src/index.js";
+import type { ImageProvider, MediaAsset, MediaComposer, PlatformDraft } from "../../core/src/types.js";
 
-export function createDefaultMediaComposer(): MediaComposer {
+export function createDefaultMediaComposer(imageProvider: ImageProvider = createDefaultImageProvider()): MediaComposer {
   return {
     async planAssets(draft: PlatformDraft): Promise<MediaAsset[]> {
       if (draft.platform === "wechat") {
@@ -27,7 +28,13 @@ export function createDefaultMediaComposer(): MediaComposer {
       return assets;
     },
     async attachAssets(draft: PlatformDraft, assets: MediaAsset[]): Promise<PlatformDraft> {
-      draft.assetIds = assets.map((asset) => asset.id);
+      const generated = [];
+      for (const asset of assets) {
+        const planned = await imageProvider.planPrompt(draft, asset);
+        Object.assign(asset, planned);
+        generated.push(asset);
+      }
+      draft.assetIds = generated.map((asset) => asset.id);
       return draft;
     }
   };

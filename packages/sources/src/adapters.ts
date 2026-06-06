@@ -22,6 +22,19 @@ interface ManualSeed {
   kind: "manual_seed";
 }
 
+interface AiHotRawItem {
+  title?: string;
+  url?: string;
+  link?: string;
+  summary?: string;
+  description?: string;
+  content?: string;
+  publishedAt?: string;
+  pubDate?: string;
+  id?: string;
+  tags?: string[];
+}
+
 function stableId(input: string): string {
   let hash = 0;
   for (let index = 0; index < input.length; index += 1) {
@@ -161,6 +174,85 @@ export class RssHubSourceAdapter implements SourceAdapter {
   }
 }
 
+export class AiHotSourceAdapter implements SourceAdapter {
+  name = "aihot" as const;
+
+  async healthcheck() {
+    return {
+      ok: true,
+      message: "AI HOT adapter ready. Prefer skill data, then AI HOT RSS, then generic RSSHub."
+    };
+  }
+
+  async collect(queryOrSource: string): Promise<unknown[]> {
+    const source = queryOrSource.trim();
+    if (!source) return [];
+
+    if (source.startsWith("aihot:")) {
+      const payload = source.slice("aihot:".length).trim();
+      if (!payload) return [];
+      return [{ title: payload, summary: payload, url: "about:blank", tags: ["aihot", "skill"] } satisfies AiHotRawItem];
+    }
+
+    if (source.startsWith("{") || source.startsWith("[")) {
+      const parsed = JSON.parse(source) as unknown;
+      const items = Array.isArray(parsed)
+        ? parsed
+        : typeof parsed === "object" && parsed && "items" in parsed && Array.isArray((parsed as { items: unknown[] }).items)
+          ? (parsed as { items: unknown[] }).items
+          : [];
+      return items.filter((item) => typeof item === "object" && item !== null);
+    }
+
+    if (source.startsWith("http://") || source.startsWith("https://")) {
+      if (!source.includes("aihot") && !source.includes("virxact")) return [];
+      const response = await fetch(source);
+      if (!response.ok) {
+        throw new Error(`AI HOT fetch failed: ${response.status} ${response.statusText}`);
+      }
+      const text = await response.text();
+      if (text.trim().startsWith("<rss") || text.trim().startsWith("<?xml") || text.trim().startsWith("<feed")) {
+        return parseRss(text);
+      }
+      const parsed = JSON.parse(text) as unknown;
+      return Array.isArray(parsed)
+        ? parsed
+        : typeof parsed === "object" && parsed && "items" in parsed && Array.isArray((parsed as { items: unknown[] }).items)
+          ? (parsed as { items: unknown[] }).items
+          : [];
+    }
+
+    return [];
+  }
+
+  normalize(rawResult: unknown): SourceItem {
+    const raw = rawResult as AiHotRawItem;
+    const title = String(raw.title ?? "Untitled AI HOT item");
+    const url = String(raw.url ?? raw.link ?? "about:blank");
+    const summary = raw.summary ?? raw.description ?? raw.content;
+    return {
+      id: `aihot-${stableId(raw.id ?? url + title)}`,
+      sourceType: "aihot",
+      collectorAdapter: "aihot",
+      complianceStatus: "not_required",
+      title,
+      url,
+      summary,
+      rawText: raw.content ?? summary,
+      publishedAt: raw.publishedAt ?? raw.pubDate,
+      tags: [...(raw.tags ?? []), "aihot"],
+      metadata: {
+        accessMode: raw.tags?.includes("rss") ? "rss" : "skill",
+        sourcePriority: 1
+      }
+    };
+  }
+
+  explainFailure(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
 export class BrowserActSourceAdapter implements SourceAdapter {
   name = "browseract" as const;
 
@@ -245,6 +337,7 @@ export class MediaCrawlerFallbackAdapter implements SourceAdapter {
 
 export function createDefaultSourceAdapters(options: { enableMediaCrawlerFallback?: boolean } = {}): SourceAdapter[] {
   return [
+    new AiHotSourceAdapter(),
     new RssHubSourceAdapter(),
     new BrowserActSourceAdapter(),
     new MediaCrawlerFallbackAdapter(options.enableMediaCrawlerFallback === true)

@@ -2,20 +2,48 @@
 
 ## Summary
 
-TrendForge 第一版采用三层采集策略：
+TrendForge 第一版采用四层采集策略：
 
-1. RSSHub 负责常规订阅。
-2. BrowserAct 负责疑难网页、登录网页、动态网页和完整原文补采。
-3. MediaCrawler 作为自动备用采集器，只在明确启用且合规的场景下触发。
+1. AI HOT skill 负责 AI 热点信息的最高优先级采集。
+2. RSSHub 负责常规 RSS/RSSHub 订阅；AI HOT 自身的 RSS 可作为 AI HOT 的备用接入方式。
+3. BrowserAct 负责疑难网页、登录网页、动态网页和完整原文补采。
+4. MediaCrawler 作为自动备用采集器，只在明确启用且合规的场景下触发。
+
+## AI HOT
+
+定位：AI 信息源最高优先级入口。
+
+来源：
+
+- Skill / Agent 接入页：`https://aihot.virxact.com/aihot-skill/`
+- RSS 接入：由 AI HOT 提供的 RSS 能力进入
+- REST API：作为后续可选接入方式
+
+行为约定：
+
+- 默认使用 AI HOT skill 的精选信息流。
+- 用户明确要求“日报”时使用 daily 信息。
+- 用户明确要求“全部”或“全量”时使用 all 信息。
+- 当 skill 接入不可用但 RSS 可用时，使用 AI HOT RSS 作为同源备用入口。
+- AI HOT RSS 优先级高于普通 RSSHub 订阅，因为它仍属于 AI HOT 信息源。
+
+输出：
+
+- 标准化 `SourceItem`
+- 来源 URL
+- 发布时间或榜单时间
+- 摘要、正文片段或热点描述
+- AI HOT 接入方式元数据：`skill`、`rss` 或 `api`
 
 ## RSSHub
 
-定位：默认采集入口。
+定位：通用 RSS/RSSHub 采集入口。
 
 输入：
 
 - RSSHub route URL
 - 用户自建 RSSHub 实例地址
+- 非 AI HOT 的 RSS URL
 - 订阅分组、关键词、优先级
 
 输出：
@@ -92,14 +120,16 @@ TrendForge 第一版采用三层采集策略：
 
 ## Fallback Order
 
-默认顺序：
+AI 信息默认顺序：
 
 ```text
-RSSHub -> BrowserAct -> MediaCrawler
+AI HOT skill -> AI HOT RSS -> RSSHub -> BrowserAct -> MediaCrawler
 ```
 
 失败回退规则：
 
+- AI HOT skill 不可用：使用 AI HOT RSS。
+- AI HOT RSS 没有结果：进入 RSSHub 或其他普通 RSS/RSSHub 订阅。
 - RSSHub 没有结果：进入 BrowserAct。
 - BrowserAct 无法拿到完整内容：如果允许，进入 MediaCrawler。
 - MediaCrawler 失败：记录失败原因，不阻塞其他候选项。
@@ -119,4 +149,3 @@ MediaCrawler 额外需要：
 - `checkLocalProject()`
 - `buildCommand(request)`
 - `parseOutput(outputPath)`
-

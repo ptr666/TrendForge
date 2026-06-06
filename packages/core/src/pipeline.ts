@@ -1,6 +1,7 @@
 import { createDefaultDraftGenerator } from "../../generator/src/index.js";
 import { createDefaultMediaComposer } from "../../media/src/index.js";
 import { createNoopPublishers } from "../../publishers/src/index.js";
+import { createDefaultTextProvider } from "../../providers/src/index.js";
 import { createDefaultSelector } from "../../selector/src/index.js";
 import { createDefaultSourceAdapters } from "../../sources/src/adapters.js";
 import { createDefaultVerifier } from "../../verifier/src/index.js";
@@ -23,6 +24,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
   const verifier = createDefaultVerifier();
   const selector = createDefaultSelector();
   const generator = createDefaultDraftGenerator();
+  const textProvider = createDefaultTextProvider();
   const media = createDefaultMediaComposer();
   const publishers = createNoopPublishers();
 
@@ -90,18 +92,22 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       }
 
       const selections = selector.selectTopN(scored, request.topN ?? 5);
+      const summaries = [];
       const drafts: PlatformDraft[] = [];
       for (const selection of selections) {
         const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
         if (!article) continue;
+        const summary = await textProvider.summarize(article, selection);
+        summaries.push(summary);
+        await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
         if (request.requestedPlatforms.includes("review")) {
-          drafts.push(await generator.generateReviewDraft(selection, article));
+          drafts.push(await generator.generateReviewDraft(selection, article, summary));
         }
         if (request.requestedPlatforms.includes("wechat")) {
-          drafts.push(await generator.generateWechatDraft(selection, article));
+          drafts.push(await generator.generateWechatDraft(selection, article, summary));
         }
         if (request.requestedPlatforms.includes("xhs")) {
-          drafts.push(await generator.generateXhsDraft(selection, article));
+          drafts.push(await generator.generateXhsDraft(selection, article, summary));
         }
       }
       await deps.store.appendEvent(request.runId, { stage: "generate", count: drafts.length });
@@ -119,7 +125,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       for (const draft of drafts) {
         const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
         if (publisher) {
-          const publishResult = request.dryRunPublish === false
+          const publishResult = request.dryRunPublish === false || request.allowRealDraft === true
             ? await publisher.publishDraft(draft)
             : {
                 draftId: draft.id,
@@ -146,6 +152,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         sourceItems,
         verifiedArticles,
         selections,
+        summaries,
         drafts,
         assets,
         publishResults,

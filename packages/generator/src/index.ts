@@ -1,14 +1,15 @@
-import type { CandidateSelection, DraftGenerator, PlatformDraft, VerifiedArticle } from "../../core/src/types.js";
+import type { ArticleSummary, CandidateSelection, DraftGenerator, PlatformDraft, VerifiedArticle } from "../../core/src/types.js";
 
-function baseDraft(platform: PlatformDraft["platform"], selection: CandidateSelection, article: VerifiedArticle): PlatformDraft {
+function baseDraft(platform: PlatformDraft["platform"], selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary): PlatformDraft {
   const platformLabel = platform === "wechat" ? "公众号" : platform === "xhs" ? "小红书" : "审阅";
-  const title = `TrendForge ${platformLabel}草稿`;
+  const title = platform === "review" ? `TrendForge ${platformLabel}草稿` : summary.title;
   const sourceText = article.fullText ?? article.failureReason ?? "No full text available yet.";
+  const keyPoints = summary.keyPoints.map((point) => `- ${point}`).join("\n");
   const body = platform === "xhs"
-    ? `${sourceText.slice(0, 800)}\n\n#AI热点 #趋势观察 #内容工作流`
+    ? `${summary.summary}\n\n${summary.angle}\n\n${summary.keyPoints.join("\n")}\n\n#AI热点 #趋势观察 #内容工作流`
     : platform === "wechat"
-      ? `# ${title}\n\n${sourceText}\n\n> 选材理由：${selection.reason}`
-      : `## ${title}\n\n${sourceText}\n\nSelection score: ${selection.score}\nReason: ${selection.reason}`;
+      ? `# ${title}\n\n${summary.summary}\n\n## 为什么值得关注\n\n${summary.angle}\n\n## 关键信息\n\n${keyPoints}\n\n> 选材理由：${selection.reason}`
+      : `## ${title}\n\n${summary.summary}\n\n### Angle\n\n${summary.angle}\n\n### Key points\n\n${keyPoints}\n\n### Source excerpt\n\n${sourceText.slice(0, 1000)}\n\nSelection score: ${selection.score}\nReason: ${selection.reason}`;
   return {
     id: `${platform}-${selection.sourceItemId}`,
     sourceItemId: selection.sourceItemId,
@@ -17,19 +18,26 @@ function baseDraft(platform: PlatformDraft["platform"], selection: CandidateSele
     body,
     digest: selection.reason,
     tone: platform === "xhs" ? "short_social" : platform === "wechat" ? "longform" : "review"
+    ,
+    metadata: {
+      summary,
+      articleStatus: article.status,
+      evidenceUrl: article.evidenceUrl,
+      riskNotes: summary.riskNotes
+    }
   };
 }
 
 export function createDefaultDraftGenerator(): DraftGenerator {
   return {
-    async generateReviewDraft(selection: CandidateSelection, article: VerifiedArticle) {
-      return baseDraft("review", selection, article);
+    async generateReviewDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary) {
+      return baseDraft("review", selection, article, summary);
     },
-    async generateWechatDraft(selection: CandidateSelection, article: VerifiedArticle) {
-      return baseDraft("wechat", selection, article);
+    async generateWechatDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary) {
+      return baseDraft("wechat", selection, article, summary);
     },
-    async generateXhsDraft(selection: CandidateSelection, article: VerifiedArticle) {
-      return baseDraft("xhs", selection, article);
+    async generateXhsDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary) {
+      return baseDraft("xhs", selection, article, summary);
     }
   };
 }

@@ -12,9 +12,10 @@
           "type": "array",
           "items": {
             "type": "string",
-            "enum": ["rsshub", "browseract", "mediacrawler"]
+            "enum": ["aihot", "rsshub", "browseract", "mediacrawler"]
           }
         },
+        "aihot": { "$ref": "#/$defs/collectorConfig" },
         "rsshub": { "$ref": "#/$defs/collectorConfig" },
         "browseract": { "$ref": "#/$defs/collectorConfig" },
         "mediacrawler": {
@@ -46,6 +47,7 @@
           "fetch_full_text",
           "score",
           "select",
+          "summarize",
           "rewrite",
           "compose_media",
           "publish"
@@ -125,7 +127,7 @@
             "sourceType": { "type": "string" },
             "collectorAdapter": {
               "type": "string",
-              "enum": ["rsshub", "browseract", "mediacrawler", "manual", "api"]
+              "enum": ["aihot", "rsshub", "browseract", "mediacrawler", "manual", "api"]
             },
             "complianceStatus": {
               "type": "string",

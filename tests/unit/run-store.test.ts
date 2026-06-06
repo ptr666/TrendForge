@@ -17,6 +17,7 @@ test("run store saves, reads, and lists runs", async () => {
     sourceItems: [],
     verifiedArticles: [],
     selections: [],
+    summaries: [],
     drafts: [],
     assets: [],
     publishResults: [],
@@ -27,6 +28,7 @@ test("run store saves, reads, and lists runs", async () => {
   await store.appendEvent("run-test", { stage: "finished" });
 
   assert.deepEqual(await store.readRun("run-test"), result);
+  assert.deepEqual((await store.readEvents("run-test")).map((event) => event.stage), ["finished"]);
   assert.equal((await store.listRuns()).length, 1);
 
   await rm(rootDir, { recursive: true, force: true });

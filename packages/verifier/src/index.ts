@@ -12,6 +12,7 @@ function stripHtml(value: string): string {
 }
 
 function methodFor(item: SourceItem): VerifiedArticle["method"] {
+  if (item.collectorAdapter === "aihot") return "aihot";
   if (item.collectorAdapter === "browseract") return "browseract";
   if (item.collectorAdapter === "mediacrawler") return "mediacrawler";
   if (item.collectorAdapter === "manual") return "manual";

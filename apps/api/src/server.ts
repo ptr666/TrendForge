@@ -1,6 +1,6 @@
 import http from "node:http";
 import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
-import { defaultCollectorOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
+import { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import { createNoopPublishers } from "../../../packages/publishers/src/index.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { Platform } from "../../../packages/core/src/types.js";
@@ -43,6 +43,7 @@ const server = http.createServer(async (req, res) => {
       requestedPlatforms,
       allowBrowserFallback: body.allowBrowserFallback !== false,
       allowMediaCrawlerFallback: body.allowMediaCrawlerFallback === true,
+      allowRealDraft: body.allowRealDraft === true,
       dryRunPublish: body.dryRunPublish !== false
     });
     send(res, 200, result);
@@ -56,6 +57,11 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url?.startsWith("/runs/")) {
     const runId = decodeURIComponent(req.url.slice("/runs/".length));
+    if (runId.endsWith("/events")) {
+      const realRunId = runId.slice(0, -"/events".length);
+      send(res, 200, { runId: realRunId, events: await store.readEvents(realRunId) });
+      return;
+    }
     const run = await store.readRun(runId);
     send(res, run ? 200 : 404, run ?? { error: "run_not_found" });
     return;
@@ -78,6 +84,7 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/sources") {
     send(res, 200, {
       defaultCollectorOrder,
+      aiHotDefaults,
       mediaCrawlerDefaults
     });
     return;

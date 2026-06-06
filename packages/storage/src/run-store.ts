@@ -27,6 +27,17 @@ export function createRunStore(options: RunStoreOptions = {}): RunStore {
         return undefined;
       }
     },
+    async readEvents(runId: string): Promise<Array<Record<string, unknown>>> {
+      try {
+        const content = await readFile(path.join(rootDir, `${runId}.events.jsonl`), "utf8");
+        return content
+          .split("\n")
+          .filter((line) => line.trim().length > 0)
+          .map((line) => JSON.parse(line) as Record<string, unknown>);
+      } catch {
+        return [];
+      }
+    },
     async listRuns(): Promise<Array<{ runId: string; path: string; updatedAt: string }>> {
       await mkdir(rootDir, { recursive: true });
       const files = await readdir(rootDir);

@@ -1,10 +1,16 @@
 {
   "collectors": {
-    "defaultOrder": ["rsshub", "browseract", "mediacrawler"],
+    "defaultOrder": ["aihot", "rsshub", "browseract", "mediacrawler"],
+    "aihot": {
+      "enabled": true,
+      "mode": "ai_hot_skill_with_rss_fallback",
+      "skillUrl": "https://aihot.virxact.com/aihot-skill/",
+      "notes": "Highest-priority source for AI trend information. Prefer the skill feed, then AI HOT RSS when skill access is unavailable."
+    },
     "rsshub": {
       "enabled": true,
       "mode": "rss_subscription",
-      "notes": "Default source adapter for normal subscriptions."
+      "notes": "General RSS/RSSHub adapter for non-AI HOT subscriptions."
     },
     "browseract": {
       "enabled": true,

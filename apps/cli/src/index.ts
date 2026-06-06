@@ -8,6 +8,10 @@ function printHelp(): void {
   console.log(`TrendForge CLI
 
 Commands:
+  trendforge runs
+  trendforge events --run-id <id>
+  trendforge sources
+  trendforge publishers
   trendforge collect
   trendforge verify
   trendforge generate
@@ -51,6 +55,34 @@ async function main(): Promise<void> {
   const store = createRunStore();
   const pipeline = createDefaultPipeline({ store });
 
+  if (command === "runs") {
+    console.log(JSON.stringify({ runs: await store.listRuns() }, null, 2));
+    return;
+  }
+
+  if (command === "events") {
+    const runId = readOption("--run-id");
+    if (!runId) throw new Error("Missing --run-id for events.");
+    console.log(JSON.stringify({ runId, events: await store.readEvents(runId) }, null, 2));
+    return;
+  }
+
+  if (command === "sources") {
+    const { aiHotDefaults, defaultCollectorOrder, mediaCrawlerDefaults } = await import("../../../packages/config/src/index.js");
+    console.log(JSON.stringify({ defaultCollectorOrder, aiHotDefaults, mediaCrawlerDefaults }, null, 2));
+    return;
+  }
+
+  if (command === "publishers") {
+    const { createNoopPublishers } = await import("../../../packages/publishers/src/index.js");
+    const health = [];
+    for (const publisher of createNoopPublishers()) {
+      health.push({ platform: publisher.platform, ...(await publisher.healthcheck()) });
+    }
+    console.log(JSON.stringify({ publishers: health }, null, 2));
+    return;
+  }
+
   if (["collect", "verify", "generate", "preview", "publish", "run"].includes(command)) {
     const result = await pipeline.run({
       runId: `run-${Date.now()}`,
@@ -58,6 +90,7 @@ async function main(): Promise<void> {
       requestedPlatforms: readPlatforms(),
       allowBrowserFallback: !hasFlag("--no-browser-fallback"),
       allowMediaCrawlerFallback: hasFlag("--allow-mediacrawler"),
+      allowRealDraft: hasFlag("--real-draft"),
       dryRunPublish: !hasFlag("--real-publish")
     });
     console.log(JSON.stringify(result, null, 2));

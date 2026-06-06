@@ -4,14 +4,17 @@ class PlannedPublisher implements PublisherAdapter {
   constructor(public readonly platform: "wechat" | "xhs") {}
 
   async healthcheck() {
-    return { ok: true, message: `${this.platform} publisher adapter ready in dry-run mode.` };
+    const message = this.platform === "wechat"
+      ? "WeChat workflow adapter ready. Real draft creation requires explicit user action, credentials, and IP whitelist."
+      : "XHS workflow adapter ready. Real draft save requires explicit user action, Hermes bridge, extension, and login state.";
+    return { ok: true, message };
   }
 
   async preview(draft: PlatformDraft) {
     if (this.platform === "wechat") {
       return {
         ok: true,
-        message: `Planned command: cd workflows/wechat-official && npm run preview for ${draft.id}.`
+        message: `Planned WeChat preview/check for ${draft.id}: use wechat-official-account-workflow, then npm run preview and npm run check.`
       };
     }
     return {
@@ -22,14 +25,14 @@ class PlannedPublisher implements PublisherAdapter {
 
   async publishDraft(draft: PlatformDraft): Promise<PublishResult> {
     const message = this.platform === "wechat"
-      ? "Dry-run only. Planned WeChat flow: generate article brief/Markdown, npm run preview, npm run check, then explicit npm run publish."
-      : "Dry-run only. Planned XHS flow: check-login, fill-publish, verify visible page content, then save-draft.";
+      ? "Planned WeChat draft flow: generate article brief/Markdown, npm run preview, npm run check, then create a draft only after explicit realDraft approval."
+      : "Planned XHS draft flow: check-login, fill-publish, verify visible page content, then save-draft only after explicit realDraft approval.";
     return {
       draftId: draft.id,
       platform: this.platform,
-      status: "skipped",
+      status: "queued",
       message,
-      verificationSignal: this.platform === "wechat" ? "preview/check required" : "page draft signal required"
+      verificationSignal: this.platform === "wechat" ? "state/published.json and output/article-final.html required" : "browser page draft-saved signal required"
     };
   }
 

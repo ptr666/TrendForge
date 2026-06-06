@@ -4,8 +4,8 @@ TrendForge 是一个面向 AI 热点内容生产的本地工作台设计。
 
 它把采集、验证、生成、媒体处理和发布拆成可插拔模块，并把两套现有工作流作为项目里的两个发布适配器：
 
-- 公众号适配器：基于 Markdown、配置、预览、检查和草稿发布的 API 型链路
-- 小红书适配器：基于浏览器桥接、页面填充和草稿保存的自动化链路
+- 公众号适配器：基于 `wechat-official-account-shareable` 中的 `wechat-official-account-workflow` skill，围绕 Markdown、article brief、AI 封面图、预览、检查和微信官方 API 草稿发布实现 API 型链路
+- 小红书适配器：基于 `xhs-browser-draft-setup-package` 这份 share-safe skill 文档，围绕 `autoclaw-cc/xiaohongshu-skills`、Hermes、浏览器桥接、页面填充和草稿保存实现自动化链路
 
 主流程是统一的：
 
@@ -18,12 +18,13 @@ TrendForge 是一个面向 AI 热点内容生产的本地工作台设计。
 
 ## 现有能力来源
 
-- 公众号工作流蓝本：`wechat-official-account-shareable/wechat-official-account-shareable/wechat-official-account`
-- 小红书工作流蓝本：`xhs-browser-draft-setup-package/xhs-browser-draft-setup-package/xhs-browser-draft-setup`
+- 公众号工作流蓝本：`wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，它管理 `wechat-official-account-shareable/wechat-official-account/` Node 工作流，并通过微信官方 API 创建草稿
+- 小红书工作流蓝本：`xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，它是围绕 `autoclaw-cc/xiaohongshu-skills` 与 Hermes 的安装、验证、排障和分享版配置文档
 
 ## 采集策略
 
-- RSSHub：常规订阅入口，优先使用。
+- AI HOT skill：AI 热点信息最高优先级入口，默认优先使用精选流；它也支持 RSS 接入。
+- RSSHub：常规订阅和非 AI HOT RSS/RSSHub 路由入口。
 - BrowserAct：疑难网页、登录网页、完整原文补采入口。
 - MediaCrawler：自动备用采集器，只在明确启用且合规场景下使用。
 

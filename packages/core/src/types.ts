@@ -1,6 +1,6 @@
 export type Platform = "review" | "wechat" | "xhs";
 
-export type CollectorAdapterName = "rsshub" | "browseract" | "mediacrawler" | "manual" | "api";
+export type CollectorAdapterName = "aihot" | "rsshub" | "browseract" | "mediacrawler" | "manual" | "api";
 
 export type ComplianceStatus = "not_required" | "pending" | "approved" | "rejected";
 
@@ -21,7 +21,7 @@ export interface SourceItem {
 export interface VerifiedArticle {
   sourceItemId: string;
   status: "pending" | "verified" | "partial" | "failed";
-  method: "rss" | "http" | "browseract" | "mediacrawler" | "manual";
+  method: "aihot" | "rss" | "http" | "browseract" | "mediacrawler" | "manual";
   evidenceUrl?: string;
   fullText?: string;
   failureReason?: string;
@@ -36,6 +36,15 @@ export interface CandidateSelection {
   tags: string[];
 }
 
+export interface ArticleSummary {
+  sourceItemId: string;
+  title: string;
+  summary: string;
+  angle: string;
+  keyPoints: string[];
+  riskNotes: string[];
+}
+
 export interface PlatformDraft {
   id: string;
   sourceItemId: string;
@@ -46,6 +55,7 @@ export interface PlatformDraft {
   tone?: string;
   tags?: string[];
   assetIds?: string[];
+  metadata?: Record<string, unknown>;
 }
 
 export interface MediaAsset {
@@ -73,6 +83,7 @@ export interface PipelineRunRequest {
   requestedPlatforms: Platform[];
   allowBrowserFallback?: boolean;
   allowMediaCrawlerFallback?: boolean;
+  allowRealDraft?: boolean;
   dryRunPublish?: boolean;
   topN?: number;
 }
@@ -85,6 +96,7 @@ export interface PipelineRunResult {
   sourceItems: SourceItem[];
   verifiedArticles: VerifiedArticle[];
   selections: CandidateSelection[];
+  summaries: ArticleSummary[];
   drafts: PlatformDraft[];
   assets: MediaAsset[];
   publishResults: PublishResult[];
@@ -111,9 +123,17 @@ export interface Selector {
 }
 
 export interface DraftGenerator {
-  generateReviewDraft(selection: CandidateSelection, article: VerifiedArticle): Promise<PlatformDraft>;
-  generateWechatDraft(selection: CandidateSelection, article: VerifiedArticle): Promise<PlatformDraft>;
-  generateXhsDraft(selection: CandidateSelection, article: VerifiedArticle): Promise<PlatformDraft>;
+  generateReviewDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary): Promise<PlatformDraft>;
+  generateWechatDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary): Promise<PlatformDraft>;
+  generateXhsDraft(selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary): Promise<PlatformDraft>;
+}
+
+export interface TextProvider {
+  summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary>;
+}
+
+export interface ImageProvider {
+  planPrompt(draft: PlatformDraft, asset: MediaAsset): Promise<MediaAsset>;
 }
 
 export interface MediaComposer {
@@ -134,5 +154,6 @@ export interface RunStore {
   saveRun(result: PipelineRunResult): Promise<void>;
   appendEvent(runId: string, event: Record<string, unknown>): Promise<void>;
   readRun(runId: string): Promise<PipelineRunResult | undefined>;
+  readEvents(runId: string): Promise<Array<Record<string, unknown>>>;
   listRuns(): Promise<Array<{ runId: string; path: string; updatedAt: string }>>;
 }
