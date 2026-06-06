@@ -19,6 +19,7 @@ npm.cmd install --cache .\.npm-cache
 ```powershell
 npm.cmd run check
 npm.cmd run build
+npm.cmd run web:build
 npm.cmd test
 ```
 
@@ -40,6 +41,12 @@ Then use:
 
 - `GET /health`
 - `GET /providers`
+- `GET /config/model`
+- `PUT /config/model`
+- `GET /config/wechat`
+- `PUT /config/wechat`
+- `GET /config/xhs`
+- `PUT /config/xhs`
 - `GET /subscriptions`
 - `PUT /subscriptions`
 - `POST /subscriptions/validate`
@@ -47,16 +54,23 @@ Then use:
 - `POST /verify/browseract`
 - `POST /verify/mediacrawler`
 - `POST /verify/model`
+- `POST /verify/wechat`
+- `POST /verify/xhs`
 - `POST /pipeline/run`
 - `GET /runs`
 - `GET /runs/:runId`
 - `GET /runs/:runId/events`
+- `GET /runs/:runId/review-queue`
+- `POST /runs/:runId/assets/:assetId/approve`
 - `GET /items`
 - `GET /drafts`
 - `GET /sources`
+- `GET /sources/health`
 - `GET /publishers`
+- `GET /review-queue`
+- `GET /artifacts?path=<workspace/runs/...>`
 
-Real collection and publishing remain disabled unless explicitly wired through adapters.
+Real platform drafts remain disabled unless explicitly requested with real-draft flags and passing health gates. Formal publishing remains disabled.
 
 ## Run Web UI
 
@@ -79,7 +93,8 @@ The workbench includes:
 - BrowserAct original-text verification.
 - MediaCrawler configuration checks.
 - OpenAI-compatible model verification.
-- Pipeline run history, drafts, assets, and handoff artifact paths.
+- WeChat and XHS publisher gate checks.
+- Review queue, asset approval, pipeline run history, drafts, assets, and handoff artifact paths.
 
 ## Optional Real Providers
 
@@ -128,3 +143,7 @@ npm.cmd run cli -- run --run-id real-e2e-smoke --query "https://openai.com/news/
 ```
 
 The run stores review, WeChat, and XHS draft Markdown files under `workspace/runs/<run-id>/drafts/`. BrowserAct original-text evidence is recorded in `workspace/runs/<run-id>.events.jsonl`.
+
+## Complete Usage Flow
+
+See [Complete usage flow](usage-flow.md) for the current end-to-end operating guide, including Web workbench usage, source health checks, review queue, asset approval, and WeChat/XHS draft gates.

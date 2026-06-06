@@ -4,13 +4,13 @@ This document defines how TrendForge development is sequenced and tracked. It is
 
 ## Project Goal
 
-Phase 1 focuses on making the local AI trend content pipeline real and observable:
+TrendForge now focuses on a local controllable AI trend content production desk:
 
 ```text
-AIHot/RSS source input -> brief verification -> selection -> BrowserAct/MediaCrawler original text acquisition -> summary -> platform draft -> media planning -> publish adapter state -> run history
+AIHot/RSS source input -> brief verification -> selection -> BrowserAct/MediaCrawler original text acquisition -> Chinese summary -> platform drafts -> asset approval -> WeChat/XHS draft gates -> run history and review queue
 ```
 
-The first phase should deepen a runnable pipeline instead of horizontally filling every package.
+Phase 1 made the pipeline runnable and observable. Phase 2 adds production-control surfaces: source health, review queue, asset approval, and explicit WeChat/XHS real-draft gates.
 
 ## Progress Model
 
@@ -38,7 +38,7 @@ Detailed PRDs and implementation issues live in `.scratch/<feature-slug>/` as de
 | 7 | CLI/API can query run history, items, and drafts | done | CLI and API acceptance tests run AIHot/RSS pipelines with stable run ids and committed fixtures via `--query-file`, then read back runs, events, items, and drafts through public surfaces | Makes local operation inspectable; `TRENDFORGE_RUNS_DIR` isolates test and experiment history. |
 | 8 | Source defaults distinguish collection from original text acquisition | done | Public source configuration exposes `defaultCollectorOrder` for AIHot/RSSHub collection and `defaultFullTextAcquisitionOrder` for BrowserAct/MediaCrawler original-text completion | Prevents BrowserAct and MediaCrawler from being treated as normal subscription sources. |
 | 9 | Real BrowserAct and model providers are env-gated | done | Provider tests cover command-backed BrowserAct extraction and OpenAI-compatible chat-completions summaries; pipeline tests prove model summaries flow into drafts | Defaults remain deterministic unless `TRENDFORGE_ENABLE_BROWSERACT=1` or `TRENDFORGE_TEXT_PROVIDER=openai-compatible` is configured. |
-| 10 | Browser workbench manages the local pipeline visually | done | `apps/web` builds and exposes model config, WeChat config/token check, subscription management, parameterized pipeline runs, run/event details, original-text artifacts, draft previews, and provider verification surfaces backed by API tests | Real WeChat/XHS publishing remains gated; the WeChat backend can make the official token request from local appId/appSecret config. |
+| 10 | Browser workbench manages the local pipeline visually | done | `apps/web` builds and exposes model config, WeChat config/token check, subscription management, parameterized pipeline runs, run/event details, original-text artifacts, draft previews, and provider verification surfaces backed by API tests | Phase 2 extends this into explicit WeChat/XHS draft gates and asset approval; formal publishing remains disabled. |
 
 ## Phase 2 Slices
 

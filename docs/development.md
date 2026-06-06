@@ -106,6 +106,7 @@ Default verification commands:
 
 ```powershell
 npm.cmd run build
+npm.cmd run web:build
 npm.cmd test
 ```
 
@@ -135,7 +136,23 @@ The API exposes matching run inspection surfaces:
 - `GET /items`
 - `GET /drafts`
 - `GET /sources`
+- `GET /sources/health`
 - `GET /publishers`
+- `GET /config/model`
+- `PUT /config/model`
+- `GET /config/wechat`
+- `PUT /config/wechat`
+- `GET /config/xhs`
+- `PUT /config/xhs`
+- `POST /verify/model`
+- `POST /verify/wechat`
+- `POST /verify/xhs`
+- `POST /verify/browseract`
+- `POST /verify/mediacrawler`
+- `GET /review-queue`
+- `GET /runs/:runId/review-queue`
+- `POST /runs/:runId/assets/:assetId/approve`
+- `GET /artifacts?path=<workspace/runs/...>`
 
 `defaultCollectorOrder` describes brief-information collection only: AI HOT first, then generic RSS/RSSHub. `defaultFullTextAcquisitionOrder` describes original-text completion after selection: BrowserAct first, then MediaCrawler only when explicitly enabled.
 
