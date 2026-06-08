@@ -152,14 +152,9 @@ function formatElapsed(ms: number): string {
   return minutes > 0 ? `${minutes}分${rest}秒` : `${rest}秒`;
 }
 
-function latestFailure(events: Array<Record<string, unknown>>): string {
-  const failed = [...events].reverse().find((event) => asString(event.status) === "failed" || asString(event.message));
-  return asString(failed?.message) || asString(failed?.reason);
-}
-
 export function TaskProgressPanel({ progress, events }: { progress?: TaskProgress; events?: Array<Record<string, unknown>> }) {
   if (!progress) return null;
-  const issueReason = progress.status === "failed" ? progress.failureReason : progress.failureReason || latestFailure(events ?? []);
+  const issueReason = progress.failureReason;
   const issueLabel = progress.status === "failed" ? "失败原因" : "处理提醒";
   const pillState = progress.status === "failed" ? "error" : progress.status === "partial" ? "warn" : progress.status === "success" ? "success" : "loading";
   return (

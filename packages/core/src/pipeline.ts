@@ -429,7 +429,22 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
 
   async function composeMedia(runId: string, drafts: PlatformDraft[]) {
     const assets = [];
+    await deps.store.appendEvent(runId, {
+      stage: "compose_media",
+      status: "started",
+      processedCount: 0,
+      totalDrafts: drafts.length
+    });
+    let processedDrafts = 0;
     for (const draft of drafts) {
+      await deps.store.appendEvent(runId, {
+        stage: "compose_media",
+        status: "draft_started",
+        draftId: draft.id,
+        platform: draft.platform,
+        processedCount: processedDrafts,
+        totalDrafts: drafts.length
+      });
       const plannedAssets = await media.planAssets(draft);
       const preparedAssets = plannedAssets.map((asset, index) => prepareMediaAsset(
         runId,
@@ -441,8 +456,24 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       const generatedAssets = await media.generateAssets(preparedAssets);
       assets.push(...generatedAssets);
       await media.attachAssets(draft, generatedAssets);
+      processedDrafts += 1;
+      await deps.store.appendEvent(runId, {
+        stage: "compose_media",
+        status: "draft_finished",
+        draftId: draft.id,
+        platform: draft.platform,
+        processedCount: processedDrafts,
+        totalDrafts: drafts.length,
+        count: assets.length
+      });
     }
-    await deps.store.appendEvent(runId, { stage: "compose_media", count: assets.length });
+    await deps.store.appendEvent(runId, {
+      stage: "compose_media",
+      status: "finished",
+      processedCount: processedDrafts,
+      totalDrafts: drafts.length,
+      count: assets.length
+    });
     return assets;
   }
 
@@ -774,21 +805,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       }
       await deps.store.appendEvent(request.runId, { stage: "generate", count: drafts.length });
 
-      const assets = [];
-      for (const draft of drafts) {
-        const plannedAssets = await media.planAssets(draft);
-        const preparedAssets = plannedAssets.map((asset, index) => prepareMediaAsset(
-          request.runId,
-          draft,
-          asset,
-          asset.index ?? index + 1,
-          defaultAssetDir(request.runId, deps.store.rootDir)
-        ));
-        const generatedAssets = await media.generateAssets(preparedAssets);
-        assets.push(...generatedAssets);
-        await media.attachAssets(draft, generatedAssets);
-      }
-      await deps.store.appendEvent(request.runId, { stage: "compose_media", count: assets.length });
+      const assets = await composeMedia(request.runId, drafts);
 
       const publishResults = [];
       for (const draft of drafts) {

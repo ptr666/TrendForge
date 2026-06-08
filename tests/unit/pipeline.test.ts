@@ -40,6 +40,8 @@ test("pipeline runs from AIHot source to platform draft plans and events", async
 
     const events = await store.readEvents("run-aihot");
     assert.ok(events.some((event) => event.stage === "summarize"));
+    assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "started"));
+    assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "finished"));
     assert.ok(events.some((event) => event.stage === "publish" && event.platform === "wechat" && event.status === "queued"));
     assert.ok(events.some((event) => event.stage === "finished"));
   } finally {
@@ -87,6 +89,10 @@ test("pipeline only plans image assets when an image provider is configured", as
     assert.ok(result.assets.every((asset) => String(asset.metadata?.outputDir ?? "").includes(path.join(rootDir, "run-image-provider", "assets"))));
     assert.ok(result.assets.every((asset) => asset.status === "needs-approval"));
     assert.ok(result.reviewQueue?.some((item) => item.category === "asset"));
+
+    const events = await store.readEvents("run-image-provider");
+    assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "draft_finished" && event.platform === "wechat" && event.processedCount === 1));
+    assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "finished" && event.processedCount === 2 && event.count === 4));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -517,6 +523,9 @@ test("draft generation is separated from platform draft publishing", async () =>
     assert.deepEqual(drafted.drafts.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
     assert.deepEqual(drafted.publishResults, []);
     assert.equal(drafted.reviewQueue?.some((item) => item.category === "publisher"), false);
+    const draftEvents = await store.readEvents(screened.runId);
+    assert.ok(draftEvents.some((event) => event.stage === "draft_generation" && event.status === "started"));
+    assert.ok(draftEvents.some((event) => event.stage === "compose_media" && event.status === "finished" && event.processedCount === 3));
 
     const published = await pipeline.publishDrafts({
       runId: screened.runId,

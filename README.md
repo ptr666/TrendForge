@@ -85,10 +85,17 @@ $env:TRENDFORGE_IMAGE_MODEL = "gpt-image-1"
 - `GET /publishers`：查看 WeChat/XHS gate 状态。
 - `POST /verify/model`、`POST /verify/wechat`、`POST /verify/xhs`：配置验证。
 
+## 长任务进度
+
+热点分析、草稿生成和平台推进都通过 run events 轮询。前端会按当前任务阶段切片计算进度：热点分析只看本次 screen events，草稿生成只看 `draft_generation` 之后的 events，平台推进只看 `platform_publish` 之后的 events。这样原文获取失败等热点分析阶段提醒只在候选生成界面出现一次，不会在后续草稿生成阶段重复显示。
+
+草稿生成阶段会写入 `compose_media` 进度事件，页面可显示当前阶段、已处理数量和耗时。图片模型卡住或超时时，单图会失败或待处理，不应阻断文字草稿和其他产物保存。
+
 ## 文档
 
 - [文档索引](docs/README.md)
 - [完整使用流程](docs/usage-flow.md)
+- [完整配置指南](docs/configuration.md)
 - [本地环境](docs/local-setup.md)
 - [开发流程](docs/development.md)
 - [项目进度](docs/project-progress.md)

@@ -155,13 +155,37 @@ function App() {
   const [taskProgress, setTaskProgress] = useState<TaskProgress | undefined>();
 
   function summarizeEvents(kind: TaskProgress["kind"], runId: string, startedAt: number, events: Array<Record<string, unknown>>): TaskProgress {
-    const latest = events.at(-1);
-    const finished = [...events].reverse().find((event) => asString(event.stage) === "finished");
-    const issue = [...events].reverse().find((event) => asString(event.status) === "skipped" || asString(event.status) === "failed" || asString(event.message));
-    const latestCount = events.filter((event) => typeof event.count === "number").at(-1)?.count;
-    const processedCount = typeof latestCount === "number" ? latestCount : events.filter((event) => asString(event.sourceItemId)).length;
+    const taskStartStage = kind === "screen" ? "started" : kind === "publish" ? "platform_publish" : "draft_generation";
+    const startIndex = (() => {
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (asString(event.stage) !== taskStartStage) continue;
+        if (kind !== "screen" || asString(event.mode) === "screen") return index;
+      }
+      return -1;
+    })();
+    const scopedEvents = startIndex >= 0 ? events.slice(startIndex) : [];
+    const latest = scopedEvents.at(-1);
+    const latestUnscoped = events.at(-1);
+    const latestUnscopedFailed = asString(latestUnscoped?.stage) === "finished" && asString(latestUnscoped?.status) === "failed";
+    const finished = [...scopedEvents].reverse().find((event) => asString(event.stage) === "finished");
+    const issue = [...scopedEvents].reverse().find((event) => {
+      const status = asString(event.status);
+      if (status === "failed" || status === "blocked") return true;
+      return kind === "screen" && status === "skipped";
+    }) ?? (startIndex < 0 && latestUnscopedFailed ? latestUnscoped : undefined);
+    const processedEvent = [...scopedEvents].reverse().find((event) => typeof event.processedCount === "number" || typeof event.count === "number");
+    const processedCount = typeof processedEvent?.processedCount === "number"
+      ? processedEvent.processedCount
+      : typeof processedEvent?.count === "number"
+        ? processedEvent.count
+        : scopedEvents.filter((event) => asString(event.sourceItemId)).length;
     const finishedStatus = asString(finished?.status);
-    const status = finishedStatus === "failed" ? "failed" : finishedStatus === "partial" ? "partial" : finished ? "success" : "running";
+    const status = latestUnscopedFailed && startIndex < 0
+      ? "failed"
+      : finishedStatus === "failed"
+        ? "failed"
+        : finishedStatus === "partial" ? "partial" : finished ? "success" : "running";
     const title = kind === "screen"
       ? "热点分析进行中"
       : kind === "publish" ? "平台草稿推进中" : "草稿生成进行中";
@@ -170,7 +194,7 @@ function App() {
       runId,
       title,
       startedAt,
-      currentStage: asString(latest?.stage) || "started",
+      currentStage: asString(latest?.stage) || (startIndex < 0 ? "waiting" : "started"),
       processedCount,
       elapsedMs: Date.now() - startedAt,
       status,

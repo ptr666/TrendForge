@@ -45,6 +45,7 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 17 | 草稿生成图文闭环 | done | 生成草稿时同步生成平台图片、图文预览、单图重生成，并把生成封面/正文图接入微信草稿箱和 XHS handoff。 |
 | 18 | 真实微信草稿箱验证 | done | 2026-06-09 使用真实微信 gate 跑通 `AIHot -> 候选 -> 微信草稿 -> 生成封面/正文图 -> publish-drafts -> draft/add`；run events 返回 `Official draft/add response returned media_id.`，handoff 未包含 access token。 |
 | 19 | 图片请求超时保护 | done | OpenAI-compatible 图片 provider 增加单次请求超时；图片模型卡住时单张图片失败不应阻断文字草稿、已有图片和平台 handoff 保存。 |
+| 20 | 长任务进度按阶段切片 | done | Web 轮询 `/runs/:runId/events` 时按 `screen`、`draft_generation`、`platform_publish` 各自阶段计算进度；热点分析阶段的原文失败提醒不会在草稿生成阶段重复出现；草稿生成写入 `compose_media` started/draft_started/draft_finished/finished 事件。 |
 
 ## Current Web Flow
 
@@ -68,6 +69,7 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 - HTTP 原文抓取是默认能力；BrowserAct 和 MediaCrawler 是显式 fallback。
 - 文本模型负责真实中文译文和总结；deterministic provider 只提供可测试占位。
 - 图片模型独立于文本模型；未配置时不生成图片资产，配置后可真实生成本地图文资产，但不自动上传平台。
+- 长任务进度按当前任务阶段切片；草稿生成可显示媒体合成阶段、已处理草稿数和耗时。
 - RSS/RSSHub API 保留，但不在当前主界面暴露。
 - 原始 JSON 只作为调试折叠区。
 - 启动脚本不会清空 run history；Web 显示当前 `runsDir`。

@@ -152,6 +152,8 @@ provider 和平台检查：
 
 ## 可选真实 provider
 
+更完整的配置清单见 [完整配置指南](configuration.md)。本节只保留本地启动和常用 provider 的快速说明。
+
 ### HTTP 原文获取
 
 HTTP 原文 provider 默认启用。入选候选有 HTTP URL 时，会尝试抓取 HTML/Markdown/plain text，抽取正文并写入：
@@ -198,6 +200,16 @@ provider 调用 `/chat/completions`，并期望模型返回包含 `title`、`tra
 本地测试时不要把 API key 写进仓库文档或 tracked 文件；使用 Web 配置页、`workspace/config/image-model.json` 或 `TRENDFORGE_IMAGE_API_KEY` 环境变量即可。
 
 微信公众号真实上传使用微信官方 API 链路：`GET /cgi-bin/token` 获取 access token，`POST /cgi-bin/material/add_material` 上传封面永久素材，`POST /cgi-bin/media/uploadimg` 转存正文图片，最后 `POST /cgi-bin/draft/add` 创建草稿。TrendForge 可直接保存 AppID/AppSecret，也兼容 legacy 凭据脚本读取方式；只保存 AppID 时，联通与上传 gate 会保持 blocked。
+
+## 长任务进度
+
+热点分析、草稿生成和平台推进都会写入 run events，并由 Web 轮询展示。当前进度计算按任务阶段切片：
+
+- 热点分析只看本次 `screen` 运行事件。
+- 草稿生成只看 `draft_generation` 之后的事件。
+- 平台推进只看 `platform_publish` 之后的事件。
+
+草稿生成还会写入 `compose_media` 的 `started`、`draft_started`、`draft_finished` 和 `finished` 事件，便于页面显示当前阶段、已处理数量和耗时。原文太短等热点分析阶段提醒只应在候选生成阶段出现，不应在草稿生成阶段重复显示。
 
 ## 安全提醒
 
