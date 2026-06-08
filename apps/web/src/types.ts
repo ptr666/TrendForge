@@ -32,6 +32,36 @@ export interface SourceHealth {
   }>;
 }
 
+export interface SubscriptionDraft {
+  existingId?: string;
+  type: "rss" | "rsshub";
+  source: string;
+  enabled: boolean;
+  titleOverride?: string;
+}
+
+export interface SubscriptionPreview {
+  ok: boolean;
+  type: "rss" | "rsshub";
+  source: string;
+  normalizedSource: string;
+  resolvedUrl?: string;
+  route?: string;
+  usesConfiguredBaseUrl: boolean;
+  title: string;
+  itemCount: number;
+  message: string;
+  errorCategory: string;
+  sampleItems: SourceHealth["sampleItems"];
+}
+
+export interface AiHotLatest {
+  source: SourceSubscription;
+  health: SourceHealth;
+  items: Array<Record<string, unknown>>;
+  checkedAt: string;
+}
+
 export interface RunSummary {
   runId: string;
   updatedAt: string;
@@ -44,6 +74,11 @@ export interface PublicModelConfig {
   model: string;
   keyConfigured: boolean;
   keyPreview?: string;
+}
+
+export interface PublicRssHubConfig {
+  baseUrl: string;
+  configured: boolean;
 }
 
 export interface PublicWechatConfig {
@@ -87,9 +122,37 @@ export interface VerificationResult {
   textLength?: number;
   preview?: string;
   failureReason?: string;
+  message?: string;
   summary?: Record<string, unknown>;
   items?: Array<Record<string, unknown>>;
   [key: string]: unknown;
+}
+
+export interface CandidateReview {
+  sourceItemId: string;
+  title: string;
+  url: string;
+  sourceType: string;
+  collectorAdapter: string;
+  publishedAt?: string;
+  brief?: string;
+  score: number;
+  reason: string;
+  angle?: string;
+  tags: string[];
+  originalStatus: "pending" | "verified" | "partial" | "failed";
+  originalMethod: string;
+  originalArtifactPath?: string;
+  originalPreview?: string;
+  summary: {
+    sourceItemId: string;
+    title: string;
+    summary: string;
+    angle: string;
+    keyPoints: string[];
+    riskNotes: string[];
+  };
+  riskNotes: string[];
 }
 
 export interface ReviewQueueItem {
@@ -115,8 +178,9 @@ export interface PipelineRun {
   sourceItems: Array<Record<string, unknown>>;
   verifiedArticles: Array<Record<string, unknown>>;
   selections: Array<Record<string, unknown>>;
+  candidateReviews?: CandidateReview[];
   summaries: Array<Record<string, unknown>>;
-  drafts: Array<{ id: string; platform: Platform; title: string; artifactPath?: string; body?: string }>;
+  drafts: Array<{ id: string; sourceItemId: string; platform: Platform; title: string; artifactPath?: string; body?: string; digest?: string; assetIds?: string[] }>;
   assets: Array<{ id: string; draftId: string; type: string; source: string; status?: string; ratio?: string; prompt?: string; path?: string }>;
   publishResults: Array<Record<string, unknown>>;
   reviewQueue?: ReviewQueueItem[];
@@ -129,10 +193,10 @@ export interface Artifact {
 }
 
 export interface RunSettings {
-  sourceMode: "aihot" | "subscription" | "custom";
-  subscriptionId: string;
-  customQuery: string;
-  topN: number;
+  selectedSourceIds: string[];
+  selectedAiHotItemIds: string[];
+  candidateCount: number;
+  selectedCandidateIds: string[];
   platforms: Platform[];
   allowBrowserFallback: boolean;
   allowMediaCrawlerFallback: boolean;

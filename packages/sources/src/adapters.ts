@@ -11,6 +11,21 @@ interface RssRawItem {
   guid?: string;
 }
 
+export interface RssHubResolvedSource {
+  input: string;
+  mode: "xml" | "file" | "url" | "route" | "local" | "manual";
+  normalizedSource: string;
+  resolvedUrl?: string;
+  route?: string;
+  usesConfiguredBaseUrl: boolean;
+}
+
+export interface RssHubPreview {
+  title?: string;
+  resolved: RssHubResolvedSource;
+  rawItems: unknown[];
+}
+
 interface PlannedCommand {
   queryOrSource: string;
   command: string[];
@@ -72,13 +87,78 @@ function readTag(block: string, tag: string): string | undefined {
   return match ? decodeXml(match[1]) : undefined;
 }
 
-function parseRss(xml: string): RssRawItem[] {
+function splitRouteAndQuery(route: string): { routePath: string; query: string } {
+  const queryIndex = route.indexOf("?");
+  return queryIndex >= 0
+    ? { routePath: route.slice(0, queryIndex), query: route.slice(queryIndex + 1) }
+    : { routePath: route, query: "" };
+}
+
+function normalizeRoute(route: string): string {
+  const { routePath, query } = splitRouteAndQuery(route);
+  const normalizedPath = routePath.replace(/^\/+/, "").replace(/\/+$/, "").replace(/\/{2,}/g, "/");
+  return query ? `${normalizedPath}?${query}` : normalizedPath;
+}
+
+function readFeedTitle(xml: string): string | undefined {
+  const channel = xml.match(/<channel(?:\s[^>]*)?>([\s\S]*?)<\/channel>/i)?.[1];
+  const rssTitle = channel ? readTag(channel, "title") : undefined;
+  if (rssTitle) return stripHtml(rssTitle);
+  const feed = xml.match(/<feed(?:\s[^>]*)?>([\s\S]*?)<\/feed>/i)?.[1];
+  const atomTitle = feed ? readTag(feed, "title") : undefined;
+  return atomTitle ? stripHtml(atomTitle) : undefined;
+}
+
+export function resolveRssHubSource(queryOrSource: string, baseUrl?: string): RssHubResolvedSource {
+  const source = queryOrSource.trim();
+  const configuredBaseUrl = baseUrl ?? process.env.TRENDFORGE_RSSHUB_BASE_URL ?? "https://rsshub.app";
+  const cleanBaseUrl = configuredBaseUrl.replace(/\/+$/, "");
+
+  if (!source) {
+    return { input: queryOrSource, mode: "manual", normalizedSource: "", usesConfiguredBaseUrl: false };
+  }
+
+  if (source.startsWith("<rss") || source.startsWith("<?xml") || source.startsWith("<feed")) {
+    return { input: queryOrSource, mode: "xml", normalizedSource: source, usesConfiguredBaseUrl: false };
+  }
+
+  if (source.startsWith("file:")) {
+    return { input: queryOrSource, mode: "file", normalizedSource: source, resolvedUrl: source, usesConfiguredBaseUrl: false };
+  }
+
+  if (source.startsWith("http://") || source.startsWith("https://")) {
+    return { input: queryOrSource, mode: "url", normalizedSource: source, resolvedUrl: source, usesConfiguredBaseUrl: false };
+  }
+
+  if (source.startsWith("rsshub://") || source.startsWith("/") || /^[a-z0-9_-]+\/.+/i.test(source)) {
+    const rawRoute = source.startsWith("rsshub://") ? source.slice("rsshub://".length) : source;
+    const route = normalizeRoute(rawRoute);
+    return {
+      input: queryOrSource,
+      mode: "route",
+      normalizedSource: `rsshub://${route}`,
+      resolvedUrl: `${cleanBaseUrl}/${route}`,
+      route,
+      usesConfiguredBaseUrl: true
+    };
+  }
+
+  if (source.endsWith(".xml") || source.endsWith(".rss")) {
+    return { input: queryOrSource, mode: "local", normalizedSource: source, resolvedUrl: path.resolve(source), usesConfiguredBaseUrl: false };
+  }
+
+  return { input: queryOrSource, mode: "manual", normalizedSource: source, usesConfiguredBaseUrl: false };
+}
+
+export function parseRssFeed(xml: string): { title?: string; items: RssRawItem[] } {
   const itemBlocks = [...xml.matchAll(/<item(?:\s[^>]*)?>([\s\S]*?)<\/item>/gi)].map((match) => match[1]);
   const entryBlocks = itemBlocks.length > 0
     ? itemBlocks
     : [...xml.matchAll(/<entry(?:\s[^>]*)?>([\s\S]*?)<\/entry>/gi)].map((match) => match[1]);
 
-  return entryBlocks.map((block) => {
+  return {
+    title: readFeedTitle(xml),
+    items: entryBlocks.map((block) => {
     const atomLink = block.match(/<link[^>]*href=["']([^"']+)["'][^>]*>/i)?.[1];
     const description = readTag(block, "description") ?? readTag(block, "summary");
     const content = readTag(block, "content:encoded") ?? readTag(block, "content");
@@ -90,7 +170,12 @@ function parseRss(xml: string): RssRawItem[] {
       pubDate: readTag(block, "pubDate") ?? readTag(block, "updated") ?? readTag(block, "published"),
       guid: readTag(block, "guid") ?? readTag(block, "id")
     };
-  });
+    })
+  };
+}
+
+function parseRss(xml: string): RssRawItem[] {
+  return parseRssFeed(xml).items;
 }
 
 function parseItemsPayload(parsed: unknown): unknown[] {
@@ -126,38 +211,50 @@ function sourceItemFrom(adapter: SourceItem["collectorAdapter"], query: string, 
 export class RssHubSourceAdapter implements SourceAdapter {
   name = "rsshub" as const;
 
+  constructor(private readonly options: { baseUrl?: string } = {}) {}
+
   async healthcheck() {
     return { ok: true, message: "RSSHub adapter skeleton ready." };
   }
 
   async collect(queryOrSource: string): Promise<unknown[]> {
-    const source = queryOrSource.trim();
-    if (!source) return [];
+    return (await this.preview(queryOrSource)).rawItems;
+  }
 
-    if (source.startsWith("<rss") || source.startsWith("<?xml") || source.startsWith("<feed")) {
-      return parseRss(source);
+  async preview(queryOrSource: string): Promise<RssHubPreview> {
+    const resolved = resolveRssHubSource(queryOrSource, this.options.baseUrl);
+    const source = resolved.normalizedSource;
+    if (!source) return { resolved, rawItems: [] };
+
+    if (resolved.mode === "xml") {
+      const feed = parseRssFeed(source);
+      return { resolved, title: feed.title, rawItems: feed.items };
     }
 
-    if (source.startsWith("file:")) {
+    if (resolved.mode === "file" && resolved.resolvedUrl) {
       const xml = await readFile(new URL(source), "utf8");
-      return parseRss(xml);
+      const feed = parseRssFeed(xml);
+      return { resolved, title: feed.title, rawItems: feed.items };
     }
 
-    if (source.startsWith("http://") || source.startsWith("https://")) {
-      const response = await fetch(source);
+    if ((resolved.mode === "url" || resolved.mode === "route") && resolved.resolvedUrl) {
+      const response = await fetch(resolved.resolvedUrl);
       if (!response.ok) {
-        throw new Error(`RSSHub fetch failed: ${response.status} ${response.statusText}`);
+        const prefix = resolved.mode === "route" ? "RSSHub route fetch failed" : "RSS fetch failed";
+        throw new Error(`${prefix}: ${response.status} ${response.statusText}`);
       }
       const xml = await response.text();
-      return parseRss(xml);
+      const feed = parseRssFeed(xml);
+      return { resolved, title: feed.title, rawItems: feed.items };
     }
 
-    if (source.endsWith(".xml") || source.endsWith(".rss")) {
+    if (resolved.mode === "local") {
       const xml = await readFile(path.resolve(source), "utf8");
-      return parseRss(xml);
+      const feed = parseRssFeed(xml);
+      return { resolved, title: feed.title, rawItems: feed.items };
     }
 
-    return [{ queryOrSource: source, kind: "manual_seed" } satisfies ManualSeed];
+    return { resolved, rawItems: [{ queryOrSource: source, kind: "manual_seed" } satisfies ManualSeed] };
   }
 
   normalize(rawResult: unknown): SourceItem {

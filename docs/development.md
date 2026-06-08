@@ -1,6 +1,6 @@
 # TrendForge 开发流程
 
-本文定义 TrendForge 默认开发流程，面向人类开发者和 agent，是长期维护规则，不是临时任务记录。
+本文定义 TrendForge 默认开发流程，面向人类开发者和 agent。它是长期维护规则，不是临时任务记录。
 
 ## 开发原则
 
@@ -36,43 +36,23 @@ grill-me 或 grill-with-docs
 
 ## Adapter 工作
 
-新增或修改 adapter、planned command、publisher、source integration、workflow bridge、成功信号、失败信号、幂等规则、合规 gate 或证据保留行为前，先使用 `trendforge-adapter-contract`。
+新增或修改 adapter、planned command、publisher、source integration、workflow bridge、成功信号、失败信号、限流规则、合规 gate 或证据保留行为前，先使用 `trendforge-adapter-contract`。
 
 当前发布工作流事实：
 
-- 微信公众号入口是 `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，它管理本地 Node 工作流：article brief、Markdown、预览、检查、AI/本地封面策略、官方 API 图片上传、草稿创建和发布状态。
-- 小红书入口是 `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，它围绕 `autoclaw-cc/xiaohongshu-skills`、Hermes、browser bridge、Chrome 扩展、登录态检查、页面填充、草稿保存和可选发布命令提供 share-safe 设置与排障。
-- publish result 和 run event 应暴露结构化 `plannedCommands`，并为 dry-run 草稿创建写入本地 `artifactPath` handoff 文件。
-- publisher handoff artifact 默认位于 `workspace/runs/<runId>/publisher-handoffs/`，内容包含 workflow 名称、平台草稿、planned commands 和验证信号。
+- 微信公众号入口是 `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，底层通过微信官方 API 创建草稿。
+- 小红书入口是 `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，底层依赖 `autoclaw-cc/xiaohongshu-skills`、Hermes、browser bridge、Chrome 扩展、登录态和页面级保存信号。
+- publisher handoff artifact 默认位于 `workspace/runs/<runId>/publisher-handoffs/`。
 - `--real-draft` 或 `allowRealDraft=true` 表示请求真实创建草稿，但 publisher adapter 必须在健康 gate 未就绪时 fail closed。
 
 当前来源工作流事实：
 
 - AI 热点信息优先通过 AIHot：`https://aihot.virxact.com/aihot-skill/`。
-- AIHot RSS 是同源 fallback，优先级高于通用 RSSHub route。
-- RSSHub 作为非 AIHot 的通用 RSS/RSSHub adapter。
-- RSS 和 AIHot source item 可能包含简略正文，但完整原文获取属于入选后的 BrowserAct 或 MediaCrawler 阶段。
+- AIHot 是固定默认源，内部 ID 为 `aihot-default`，不属于用户可添加的 RSS/RSSHub 渠道库。
+- RSSHub 是通用 RSS/RSSHub adapter，支持 `rsshub://anthropic/research`、`/anthropic/research`、`anthropic/research` 和完整 RSSHub URL。
+- 用户渠道库只维护 RSS 和 RSSHub；渠道 ID 由后端根据规范化来源自动生成。
 - BrowserAct 是入选 HTTP source item 的默认 planned command 原文获取路径。
-- BrowserAct planned acquisition 默认在 `workspace/runs/<runId>/full-text-handoffs/` 写入本地 JSON handoff artifact，包含 source URL、command、成功信号和 MediaCrawler fallback 策略。
-- `FullTextProvider` 是接入真实 BrowserAct 或 MediaCrawler extraction 的 pipeline seam；`TRENDFORGE_ENABLE_BROWSERACT=1` 启用命令式 BrowserAct provider。
-- `TextProvider` 是模型总结的 pipeline seam；`TRENDFORGE_TEXT_PROVIDER=openai-compatible` 启用 OpenAI-compatible chat-completions provider。
-- 测试应证明获取到的 full text 和模型总结会进入下游草稿。
-- MediaCrawler 绝不是默认原文获取路径；必须显式启用并完成合规判断。
-
-skill 草案位置：`docs/agents/custom-skills/trendforge-adapter-contract/SKILL.md`。
-
-契约必须明确：
-
-- Adapter 角色和 pipeline 阶段。
-- 输入和输出契约。
-- 可观察的成功/失败信号。
-- 幂等 key。
-- 为诊断保留的证据。
-- 合规或显式启用要求。
-- Dry-run 行为。
-- 测试应覆盖的最高 public interface。
-
-外部工作流命令默认只作为 planned command，除非用户显式开启真实执行。MediaCrawler 保持默认禁用。
+- MediaCrawler 不是默认原文获取路径，必须显式启用并完成合规判断。
 
 ## TDD 标准
 
@@ -84,6 +64,18 @@ skill 草案位置：`docs/agents/custom-skills/trendforge-adapter-contract/SKIL
 - `RunStore`，用于持久化 run state 和 event history。
 
 每次只为一个行为写一个失败测试，写最少代码让它通过，再继续下一步。不要为想象中的未来行为批量写测试。
+
+## 中文与编码规则
+
+TrendForge Web 和中文文档默认使用 UTF-8。不要通过 Windows shell 管道、未指定 UTF-8 的 Python/PowerShell 脚本、`Set-Content` 默认编码或其它会受控制台代码页影响的方式写入中文源码和中文文档。
+
+已确认的乱码根因：曾通过 Windows shell/Python 管道写入中文 JSX 和 Markdown，非 ASCII 字符在写入链路中被替换为连续问号（例如页面出现四个问号），或产生 UTF-8/GBK mojibake。这不是浏览器 charset 问题，而是源文件内容已经损坏。
+
+安全做法：
+
+- 手工补丁优先使用 `apply_patch`。
+- 若必须使用脚本改文件，脚本内容避免直接嵌入中文，或明确使用 UTF-8 并在写入后用扫描测试验证。
+- 修改中文 UI 或文档后必须运行 `npm.cmd test`，其中 `tests/unit/encoding.test.ts` 会检查核心 Web 文案和文档是否出现连续问号或典型 mojibake marker。
 
 ## 文档同步
 
@@ -98,8 +90,6 @@ skill 草案位置：`docs/agents/custom-skills/trendforge-adapter-contract/SKIL
 
 使用 `trendforge-doc-lifecycle` 做清理。skill 草案位置：`docs/agents/custom-skills/trendforge-doc-lifecycle/SKILL.md`。
 
-不再指导当前工作的临时文档应删除或归档。
-
 ## 验证命令
 
 默认验证：
@@ -110,50 +100,4 @@ npm.cmd run web:build
 npm.cmd test
 ```
 
-纯文档变更不要求跑业务测试，但要检查链接、引用和内容是否与 `AGENTS.md`、`docs/agents/issue-tracker.md`、`docs/agents/domain.md` 及相关自定义 skill 草案一致。
-
-## 后台命令
-
-后台优先工作流可通过 API 和 CLI 使用：
-
-- `trendforge run`：运行完整本地 pipeline。
-- `trendforge run --run-id <id>`：使用稳定 id 运行，便于复现 run history。
-- `trendforge run --run-id <id> --query-file tests/fixtures/aihot/aihot-skill.json`：使用内置 AIHot fixture 运行端到端 pipeline。
-- `trendforge run --run-id <id> --query-file tests/fixtures/rss/ai-workflow.xml`：使用内置 RSS fixture 运行端到端 pipeline。
-- `trendforge run-subscription --subscription-id <id>`：运行启用的本地订阅源。
-- `trendforge runs`：列出保存的 pipeline run。
-- `trendforge events --run-id <id>`：读取某次运行的阶段 event。
-- `trendforge sources`：输出 source adapter 默认值、原文获取默认值、AIHot 优先级和本地订阅。
-- `trendforge publishers`：输出 publisher adapter health。
-
-API 暴露匹配的查询入口：
-
-- `POST /pipeline/run`
-- `POST /pipeline/run` 可接受可选 `runId`，用于复现 run history。
-- `GET /runs`
-- `GET /runs/:runId`
-- `GET /runs/:runId/events`
-- `GET /items`
-- `GET /drafts`
-- `GET /sources`
-- `GET /sources/health`
-- `GET /publishers`
-- `GET /config/model`
-- `PUT /config/model`
-- `GET /config/wechat`
-- `PUT /config/wechat`
-- `GET /config/xhs`
-- `PUT /config/xhs`
-- `POST /verify/model`
-- `POST /verify/wechat`
-- `POST /verify/xhs`
-- `POST /verify/browseract`
-- `POST /verify/mediacrawler`
-- `GET /review-queue`
-- `GET /runs/:runId/review-queue`
-- `POST /runs/:runId/assets/:assetId/approve`
-- `GET /artifacts?path=<workspace/runs/...>`
-
-`defaultCollectorOrder` 只描述简略信息采集：AIHot 优先，然后通用 RSS/RSSHub。`defaultFullTextAcquisitionOrder` 描述入选后的原文补全：BrowserAct 优先，MediaCrawler 仅在显式启用后可用。
-
-设置 `TRENDFORGE_RUNS_DIR=<path>` 可在测试、实验或脚本验证时隔离 run history。
+纯文档变更不要求跑业务测试，但要检查链接、引用和内容是否与 `AGENTS.md`、`docs/agents/issue-tracker.md`、`docs/agents/domain.md` 及相关自定义 skill 草案一致。若文档涉及中文编码修复，仍建议运行 `npm.cmd test` 触发编码扫描。

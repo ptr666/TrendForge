@@ -46,6 +46,26 @@ export interface ArticleSummary {
   riskNotes: string[];
 }
 
+export interface CandidateReview {
+  sourceItemId: string;
+  title: string;
+  url: string;
+  sourceType: string;
+  collectorAdapter: CollectorAdapterName;
+  publishedAt?: string;
+  brief?: string;
+  score: number;
+  reason: string;
+  angle?: string;
+  tags: string[];
+  originalStatus: VerifiedArticle["status"];
+  originalMethod: VerifiedArticle["method"];
+  originalArtifactPath?: string;
+  originalPreview?: string;
+  summary: ArticleSummary;
+  riskNotes: string[];
+}
+
 export interface PlatformDraft {
   id: string;
   sourceItemId: string;
@@ -151,6 +171,23 @@ export interface PipelineRunRequest {
   topN?: number;
 }
 
+export interface PipelineScreenRequest {
+  runId: string;
+  sources: SourceSubscription[];
+  candidateCount: number;
+  sourceItemIds?: string[];
+  allowBrowserFallback?: boolean;
+  allowMediaCrawlerFallback?: boolean;
+}
+
+export interface PipelineDraftRequest {
+  runId: string;
+  sourceItemIds: string[];
+  requestedPlatforms: Platform[];
+  allowRealDraft?: boolean;
+  dryRunPublish?: boolean;
+}
+
 export interface PipelineRunResult {
   runId: string;
   status: "success" | "partial" | "failed";
@@ -159,6 +196,7 @@ export interface PipelineRunResult {
   sourceItems: SourceItem[];
   verifiedArticles: VerifiedArticle[];
   selections: CandidateSelection[];
+  candidateReviews?: CandidateReview[];
   summaries: ArticleSummary[];
   drafts: PlatformDraft[];
   assets: MediaAsset[];
@@ -224,4 +262,6 @@ export interface RunStore {
   readRun(runId: string): Promise<PipelineRunResult | undefined>;
   readEvents(runId: string): Promise<Array<Record<string, unknown>>>;
   listRuns(): Promise<Array<{ runId: string; path: string; updatedAt: string }>>;
+  deleteRun(runId: string): Promise<boolean>;
+  clearRuns(): Promise<number>;
 }

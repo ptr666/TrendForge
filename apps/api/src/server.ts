@@ -6,24 +6,35 @@ import { buildReviewQueue } from "../../../packages/core/src/review-queue.js";
 import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import {
   readModelConfig,
+  readRssHubConfig,
   readWechatConfig,
   readXhsConfig,
   toPublicModelConfig,
+  toPublicRssHubConfig,
   toPublicWechatConfig,
   toPublicXhsConfig,
   writeModelConfig,
+  writeRssHubConfig,
   writeWechatConfig,
   writeXhsConfig
 } from "../../../packages/config/src/local-config.js";
-import { checkSourceHealth, checkSourcesHealth, readSubscriptions, writeSubscriptions } from "../../../packages/config/src/subscriptions.js";
-import { MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
+import {
+  buildSubscriptionFromDraft,
+  checkSourceHealth,
+  checkSourcesHealth,
+  fixedAiHotSubscription,
+  previewSubscription,
+  readSubscriptions,
+  writeSubscriptions
+} from "../../../packages/config/src/subscriptions.js";
+import { AiHotSourceAdapter, MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
 import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
 import { checkWechatDraftGate, createWechatOfficialPublisher, requestWechatAccessToken } from "../../../packages/publishers/src/wechat.js";
 import { checkXhsDraftGate, createXhsBrowserPublisher } from "../../../packages/publishers/src/xhs.js";
 import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../../packages/providers/src/index.js";
 import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
-import type { CandidateSelection, Platform, SourceItem, VerifiedArticle } from "../../../packages/core/src/types.js";
+import type { CandidateSelection, Platform, SourceItem, SourceSubscription, VerifiedArticle } from "../../../packages/core/src/types.js";
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
@@ -54,7 +65,7 @@ function send(res: http.ServerResponse, statusCode: number, body: unknown): void
 
 function applyCors(res: http.ServerResponse): void {
   res.setHeader("access-control-allow-origin", process.env.TRENDFORGE_CORS_ORIGIN ?? "http://127.0.0.1:5173");
-  res.setHeader("access-control-allow-methods", "GET,POST,PUT,OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
 }
 
@@ -110,7 +121,7 @@ function workspaceRunPath(rawPath: string): string | undefined {
   return resolved.startsWith(runsRoot + path.sep) ? resolved : undefined;
 }
 
-const server = http.createServer(async (req, res) => {
+async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   res.setHeader("content-type", "application/json; charset=utf-8");
   applyCors(res);
 
@@ -138,6 +149,20 @@ const server = http.createServer(async (req, res) => {
 
   if (req.method === "GET" && req.url === "/config/model") {
     send(res, 200, toPublicModelConfig(await readModelConfig()));
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/config/rsshub") {
+    send(res, 200, toPublicRssHubConfig(await readRssHubConfig()));
+    return;
+  }
+
+  if (req.method === "PUT" && req.url === "/config/rsshub") {
+    const body = await readJsonBody(req);
+    const saved = await writeRssHubConfig({
+      baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : (await readRssHubConfig()).baseUrl
+    });
+    send(res, 200, toPublicRssHubConfig(saved));
     return;
   }
 
@@ -240,6 +265,67 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/subscriptions/upsert") {
+    const body = await readJsonBody(req);
+    if (body.type === "aihot") {
+      send(res, 400, { error: "invalid_subscription", failureReason: "AIHot 是固定默认源，不能作为用户渠道保存。" });
+      return;
+    }
+    const draft = {
+      existingId: typeof body.existingId === "string" ? body.existingId : typeof body.id === "string" ? body.id : undefined,
+      type: body.type === "rsshub" ? "rsshub" as const : "rss" as const,
+      source: typeof body.source === "string" ? body.source : "",
+      enabled: body.enabled !== false,
+      titleOverride: typeof body.titleOverride === "string" ? body.titleOverride : typeof body.title === "string" ? body.title : undefined
+    };
+    const { subscription, health, preview } = await buildSubscriptionFromDraft(draft);
+    if (!subscription.source) {
+      send(res, 400, { error: "invalid_subscription", failureReason: "Subscription requires source." });
+      return;
+    }
+    const subscriptions = await readSubscriptions();
+    const savedSubscriptions = await writeSubscriptions([
+      ...subscriptions.filter((item) => item.id !== subscription.id),
+      subscription
+    ]);
+    send(res, 200, {
+      ok: true,
+      subscription,
+      subscriptions: savedSubscriptions,
+      health,
+      preview
+    });
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/subscriptions/preview") {
+    const body = await readJsonBody(req);
+    if (body.type === "aihot") {
+      send(res, 400, { error: "invalid_subscription", failureReason: "AIHot 是固定默认源，不需要添加订阅。" });
+      return;
+    }
+    const preview = await previewSubscription({
+      type: body.type === "rsshub" ? "rsshub" : "rss",
+      source: typeof body.source === "string" ? body.source : "",
+      enabled: body.enabled !== false,
+      titleOverride: typeof body.titleOverride === "string" ? body.titleOverride : typeof body.title === "string" ? body.title : undefined
+    });
+    send(res, 200, preview);
+    return;
+  }
+
+  if (req.method === "DELETE" && req.url?.startsWith("/subscriptions/")) {
+    const sourceId = decodeURIComponent(req.url.slice("/subscriptions/".length));
+    const subscriptions = await readSubscriptions();
+    const nextSubscriptions = subscriptions.filter((subscription) => subscription.id !== sourceId);
+    if (nextSubscriptions.length === subscriptions.length) {
+      send(res, 404, { error: "subscription_not_found", sourceId });
+      return;
+    }
+    send(res, 200, { ok: true, sourceId, subscriptions: await writeSubscriptions(nextSubscriptions) });
+    return;
+  }
+
   if (req.method === "POST" && req.url === "/subscriptions/validate") {
     const body = await readJsonBody(req);
     const source = typeof body.source === "string" ? body.source : "";
@@ -308,27 +394,34 @@ const server = http.createServer(async (req, res) => {
   }
 
   if (req.method === "POST" && req.url === "/verify/model") {
-    const modelConfig = await readModelConfig();
-    const article: VerifiedArticle = {
-      sourceItemId: "verify-model",
-      status: "verified",
-      method: "manual",
-      fullText: "AI agents are moving from demos into real content operations. Summarize this trend for publishing."
-    };
-    const selection: CandidateSelection = {
-      sourceItemId: article.sourceItemId,
-      score: 100,
-      reason: "Model verification request.",
-      targetPlatforms: ["review", "wechat", "xhs"],
-      angle: "AI workflow verification",
-      tags: ["verification"]
-    };
-    const summary = await createOpenAICompatibleTextProvider({
-      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? modelConfig.baseUrl,
-      apiKey: process.env.TRENDFORGE_MODEL_API_KEY ?? modelConfig.apiKey,
-      model: process.env.TRENDFORGE_MODEL_NAME ?? modelConfig.model
-    }).summarize(article, selection);
-    send(res, 200, { ok: true, summary });
+    try {
+      const modelConfig = await readModelConfig();
+      const article: VerifiedArticle = {
+        sourceItemId: "verify-model",
+        status: "verified",
+        method: "manual",
+        fullText: "AI agents are moving from demos into real content operations. Summarize this trend for publishing."
+      };
+      const selection: CandidateSelection = {
+        sourceItemId: article.sourceItemId,
+        score: 100,
+        reason: "Model verification request.",
+        targetPlatforms: ["review", "wechat", "xhs"],
+        angle: "AI workflow verification",
+        tags: ["verification"]
+      };
+      const summary = await createOpenAICompatibleTextProvider({
+        baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? modelConfig.baseUrl,
+        apiKey: process.env.TRENDFORGE_MODEL_API_KEY ?? modelConfig.apiKey,
+        model: process.env.TRENDFORGE_MODEL_NAME ?? modelConfig.model
+      }).summarize(article, selection);
+      send(res, 200, { ok: true, summary });
+    } catch (error) {
+      send(res, 200, {
+        ok: false,
+        failureReason: error instanceof Error ? error.message : String(error)
+      });
+    }
     return;
   }
 
@@ -356,8 +449,59 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  if (req.method === "POST" && req.url === "/pipeline/screen") {
+    const body = await readJsonBody(req);
+    const subscriptions = await readSubscriptions();
+    const sourceIds = Array.isArray(body.sourceIds) ? body.sourceIds.map(String) : [];
+    const selectedSources = [
+      ...(sourceIds.includes(fixedAiHotSubscription.id) ? [fixedAiHotSubscription] : []),
+      ...subscriptions.filter((subscription) => sourceIds.includes(subscription.id))
+    ];
+    const pipeline = createDefaultPipeline({
+      store,
+      ...createRuntimeProviders(process.env, await readModelConfig()),
+      publishers: await createRuntimePublishers()
+    });
+    const result = await pipeline.screen({
+      runId: typeof body.runId === "string" ? body.runId : `screen-${Date.now()}`,
+      sources: selectedSources,
+      candidateCount: typeof body.candidateCount === "number" ? body.candidateCount : 3,
+      sourceItemIds: Array.isArray(body.sourceItemIds) ? body.sourceItemIds.map(String) : undefined,
+      allowBrowserFallback: body.allowBrowserFallback !== false,
+      allowMediaCrawlerFallback: body.allowMediaCrawlerFallback === true
+    });
+    send(res, 200, result);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/pipeline/drafts") {
+    const body = await readJsonBody(req);
+    const pipeline = createDefaultPipeline({
+      store,
+      ...createRuntimeProviders(process.env, await readModelConfig()),
+      publishers: await createRuntimePublishers()
+    });
+    const requestedPlatforms = Array.isArray(body.requestedPlatforms)
+      ? body.requestedPlatforms.filter((platform): platform is Platform => ["review", "wechat", "xhs"].includes(String(platform)))
+      : ["review", "wechat", "xhs"] satisfies Platform[];
+    const result = await pipeline.generateDrafts({
+      runId: typeof body.runId === "string" ? body.runId : "",
+      sourceItemIds: Array.isArray(body.sourceItemIds) ? body.sourceItemIds.map(String) : [],
+      requestedPlatforms,
+      allowRealDraft: body.allowRealDraft === true,
+      dryRunPublish: body.dryRunPublish !== false
+    });
+    send(res, 200, result);
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/runs") {
     send(res, 200, { runs: await store.listRuns() });
+    return;
+  }
+
+  if (req.method === "DELETE" && req.url === "/runs") {
+    send(res, 200, { ok: true, deleted: await store.clearRuns() });
     return;
   }
 
@@ -387,6 +531,13 @@ const server = http.createServer(async (req, res) => {
     }
     const run = await store.readRun(runId);
     send(res, run ? 200 : 404, run ?? { error: "run_not_found" });
+    return;
+  }
+
+  if (req.method === "DELETE" && req.url?.startsWith("/runs/")) {
+    const runId = decodeURIComponent(req.url.slice("/runs/".length));
+    const deleted = await store.deleteRun(runId);
+    send(res, deleted ? 200 : 404, deleted ? { ok: true, runId } : { error: "run_not_found", runId });
     return;
   }
 
@@ -434,6 +585,9 @@ const server = http.createServer(async (req, res) => {
       defaultFullTextAcquisitionOrder,
       aiHotDefaults,
       mediaCrawlerDefaults,
+      fixedSources: {
+        aihot: fixedAiHotSubscription
+      },
       subscriptions,
       health: await checkSourcesHealth(subscriptions)
     });
@@ -443,6 +597,20 @@ const server = http.createServer(async (req, res) => {
   if (req.method === "GET" && req.url === "/sources/health") {
     const subscriptions = await readSubscriptions();
     send(res, 200, { health: await checkSourcesHealth(subscriptions) });
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/sources/aihot/latest") {
+    const adapter = new AiHotSourceAdapter();
+    const health = await checkSourceHealth(fixedAiHotSubscription);
+    const raw = health.status === "healthy" ? await adapter.collect(fixedAiHotSubscription.source) : [];
+    const items = raw.map((item) => adapter.normalize(item)).slice(0, 20);
+    send(res, 200, {
+      source: fixedAiHotSubscription,
+      health,
+      items,
+      checkedAt: health.checkedAt
+    });
     return;
   }
 
@@ -457,6 +625,19 @@ const server = http.createServer(async (req, res) => {
   }
 
   send(res, 404, { error: "not_found" });
+}
+
+const server = http.createServer((req, res) => {
+  void handleRequest(req, res).catch((error) => {
+    if (!res.headersSent) {
+      send(res, 500, {
+        error: "internal_server_error",
+        failureReason: error instanceof Error ? error.message : String(error)
+      });
+    } else {
+      res.end();
+    }
+  });
 });
 
 server.listen(port, () => {

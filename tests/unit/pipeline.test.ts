@@ -4,7 +4,9 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { createDefaultPipeline } from "../../packages/core/src/pipeline.js";
+import { buildReviewQueue } from "../../packages/core/src/review-queue.js";
 import { createRunStore } from "../../packages/storage/src/run-store.js";
+import type { PipelineRunResult } from "../../packages/core/src/types.js";
 
 test("pipeline runs from AI HOT source to platform draft plans and events", async () => {
   const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-pipeline-"));
@@ -52,6 +54,84 @@ test("pipeline runs from AI HOT source to platform draft plans and events", asyn
   assert.ok(events.some((event) => event.stage === "finished"));
 
   await rm(rootDir, { recursive: true, force: true });
+});
+
+test("review queue tolerates older saved runs with missing arrays", () => {
+  const queue = buildReviewQueue({
+    runId: "legacy-run",
+    status: "success",
+    startedAt: "2026-06-06T00:00:00.000Z",
+    finishedAt: "2026-06-06T00:01:00.000Z",
+    sourceItems: []
+  } as unknown as PipelineRunResult);
+
+  assert.deepEqual(queue, []);
+});
+
+test("pipeline screen only analyzes selected AIHot source item ids", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-screen-selected-aihot-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({
+    store,
+    sourceAdapters: [{
+      name: "aihot",
+      async healthcheck() {
+        return { ok: true };
+      },
+      async collect() {
+        return [{
+          id: "skip-me",
+          title: "Ignored AIHot signal",
+          url: "about:blank",
+          summary: "This item should not enter scoring."
+        }, {
+          id: "keep-me",
+          title: "Selected AIHot signal",
+          url: "about:blank",
+          summary: "This selected item should enter scoring."
+        }];
+      },
+      normalize(raw) {
+        const item = raw as { id: string; title: string; url: string; summary: string };
+        return {
+          id: item.id,
+          sourceType: "aihot",
+          collectorAdapter: "aihot",
+          complianceStatus: "not_required",
+          title: item.title,
+          url: item.url,
+          summary: item.summary,
+          tags: ["aihot"]
+        };
+      },
+      explainFailure(error) {
+        return error instanceof Error ? error.message : String(error);
+      }
+    }]
+  });
+
+  try {
+    const result = await pipeline.screen({
+      runId: "screen-selected-aihot",
+      sources: [{
+        id: "aihot-default",
+        title: "AIHot",
+        type: "aihot",
+        source: "fixture",
+        enabled: true
+      }],
+      sourceItemIds: ["keep-me"],
+      candidateCount: 3
+    });
+    const events = await store.readEvents("screen-selected-aihot");
+
+    assert.equal(result.sourceItems.length, 1);
+    assert.equal(result.sourceItems[0]?.id, "keep-me");
+    assert.equal(result.candidateReviews?.[0]?.sourceItemId, "keep-me");
+    assert.ok(events.some((event) => event.stage === "collect" && event.status === "filtered" && event.count === 1));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
 });
 
 test("pipeline plans BrowserAct full-text acquisition for selected HTTP source items", async () => {

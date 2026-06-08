@@ -1,14 +1,18 @@
 import type { PipelineRunResult, ReviewQueueItem } from "./types.js";
 
 function itemTitle(result: PipelineRunResult, sourceItemId: string): string {
-  return result.sourceItems.find((item) => item.id === sourceItemId)?.title ?? sourceItemId;
+  return safeArray(result.sourceItems).find((item) => item.id === sourceItemId)?.title ?? sourceItemId;
+}
+
+function safeArray<T>(value: T[] | undefined): T[] {
+  return Array.isArray(value) ? value : [];
 }
 
 export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
   const createdAt = result.finishedAt;
   const queue: ReviewQueueItem[] = [];
 
-  for (const error of result.errors) {
+  for (const error of safeArray(result.errors)) {
     queue.push({
       id: `${result.runId}:pipeline:${error.stage}`,
       runId: result.runId,
@@ -22,7 +26,7 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
     });
   }
 
-  for (const article of result.verifiedArticles) {
+  for (const article of safeArray(result.verifiedArticles)) {
     if (article.status === "failed" || !article.fullText?.trim()) {
       queue.push({
         id: `${result.runId}:original-text:${article.sourceItemId}`,
@@ -43,7 +47,7 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
     }
   }
 
-  for (const summary of result.summaries) {
+  for (const summary of safeArray(result.summaries)) {
     queue.push({
       id: `${result.runId}:summary:${summary.sourceItemId}`,
       runId: result.runId,
@@ -53,12 +57,12 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
       reason: "Generated Chinese summary should be checked before platform draft approval.",
       action: "Review angle, key points, and risk notes; rerun summary if the angle is weak.",
       sourceItemId: summary.sourceItemId,
-      priority: summary.riskNotes.length > 0 ? "high" : "normal",
+      priority: safeArray(summary.riskNotes).length > 0 ? "high" : "normal",
       createdAt
     });
   }
 
-  for (const draft of result.drafts) {
+  for (const draft of safeArray(result.drafts)) {
     queue.push({
       id: `${result.runId}:draft:${draft.id}`,
       runId: result.runId,
@@ -76,9 +80,9 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
     });
   }
 
-  for (const asset of result.assets) {
+  for (const asset of safeArray(result.assets)) {
     if (asset.approvalRequired || asset.status === "needs-approval") {
-      const draft = result.drafts.find((candidate) => candidate.id === asset.draftId);
+      const draft = safeArray(result.drafts).find((candidate) => candidate.id === asset.draftId);
       queue.push({
         id: `${result.runId}:asset:${asset.id}`,
         runId: result.runId,
@@ -97,7 +101,7 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
     }
   }
 
-  for (const publishResult of result.publishResults) {
+  for (const publishResult of safeArray(result.publishResults)) {
     queue.push({
       id: `${result.runId}:publisher:${publishResult.draftId}:${publishResult.platform}`,
       runId: result.runId,

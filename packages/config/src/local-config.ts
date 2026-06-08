@@ -22,6 +22,10 @@ export interface XhsConfig {
   bridgeUrl: string;
 }
 
+export interface RssHubConfig {
+  baseUrl: string;
+}
+
 export interface PublicModelConfig {
   enabled: boolean;
   provider: ModelConfig["provider"];
@@ -45,6 +49,11 @@ export interface PublicXhsConfig {
   bridgeUrl: string;
 }
 
+export interface PublicRssHubConfig {
+  baseUrl: string;
+  configured: boolean;
+}
+
 export const defaultModelConfig: ModelConfig = {
   enabled: false,
   provider: "deterministic",
@@ -61,6 +70,10 @@ export const defaultXhsConfig: XhsConfig = {
   enabled: false,
   projectDir: "vendor/xiaohongshu-skills",
   bridgeUrl: "ws://localhost:9343"
+};
+
+export const defaultRssHubConfig: RssHubConfig = {
+  baseUrl: "https://rsshub.app"
 };
 
 function defaultConfigDir(): string {
@@ -84,6 +97,10 @@ function wechatConfigPath(configDir = defaultConfigDir()): string {
 
 function xhsConfigPath(configDir = defaultConfigDir()): string {
   return path.join(configDir, "xhs.json");
+}
+
+function rssHubConfigPath(configDir = defaultConfigDir()): string {
+  return path.join(configDir, "rsshub.json");
 }
 
 function normalizeModelConfig(value: unknown): ModelConfig {
@@ -117,6 +134,15 @@ function normalizeXhsConfig(value: unknown): XhsConfig {
   };
 }
 
+function normalizeRssHubConfig(value: unknown): RssHubConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<RssHubConfig> : {};
+  return {
+    baseUrl: typeof candidate.baseUrl === "string" && candidate.baseUrl.trim()
+      ? candidate.baseUrl.trim().replace(/\/$/, "")
+      : process.env.TRENDFORGE_RSSHUB_BASE_URL?.replace(/\/$/, "") ?? defaultRssHubConfig.baseUrl
+  };
+}
+
 export function toPublicModelConfig(config: ModelConfig): PublicModelConfig {
   return {
     enabled: config.enabled,
@@ -143,6 +169,13 @@ export function toPublicXhsConfig(config: XhsConfig): PublicXhsConfig {
     enabled: config.enabled,
     projectDir: config.projectDir,
     bridgeUrl: config.bridgeUrl
+  };
+}
+
+export function toPublicRssHubConfig(config: RssHubConfig): PublicRssHubConfig {
+  return {
+    baseUrl: config.baseUrl,
+    configured: config.baseUrl !== defaultRssHubConfig.baseUrl || Boolean(process.env.TRENDFORGE_RSSHUB_BASE_URL)
   };
 }
 
@@ -190,5 +223,20 @@ export async function writeXhsConfig(config: XhsConfig, configDir?: string): Pro
   const normalized = normalizeXhsConfig(config);
   await mkdir(path.dirname(xhsConfigPath(configDir)), { recursive: true });
   await writeFile(xhsConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+}
+
+export async function readRssHubConfig(configDir?: string): Promise<RssHubConfig> {
+  try {
+    return normalizeRssHubConfig(JSON.parse(await readFile(rssHubConfigPath(configDir), "utf8")) as unknown);
+  } catch {
+    return normalizeRssHubConfig({});
+  }
+}
+
+export async function writeRssHubConfig(config: RssHubConfig, configDir?: string): Promise<RssHubConfig> {
+  const normalized = normalizeRssHubConfig(config);
+  await mkdir(path.dirname(rssHubConfigPath(configDir)), { recursive: true });
+  await writeFile(rssHubConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
   return normalized;
 }

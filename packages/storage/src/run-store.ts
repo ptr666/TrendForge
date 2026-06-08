@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PipelineRunResult, RunStore } from "../../core/src/types.js";
 
@@ -8,6 +8,15 @@ export interface RunStoreOptions {
 
 export function createRunStore(options: RunStoreOptions = {}): RunStore {
   const rootDir = options.rootDir ?? process.env.TRENDFORGE_RUNS_DIR ?? path.resolve("workspace", "runs");
+  const resolvedRoot = path.resolve(rootDir);
+
+  function resolveRunPath(...segments: string[]): string {
+    const resolved = path.resolve(resolvedRoot, ...segments);
+    if (resolved !== resolvedRoot && !resolved.startsWith(resolvedRoot + path.sep)) {
+      throw new Error("Run path is outside the runs directory.");
+    }
+    return resolved;
+  }
 
   return {
     async saveRun(result: PipelineRunResult): Promise<void> {
@@ -53,6 +62,20 @@ export function createRunStore(options: RunStoreOptions = {}): RunStore {
         });
       }
       return entries.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    },
+    async deleteRun(runId: string): Promise<boolean> {
+      const run = await this.readRun(runId);
+      await rm(resolveRunPath(`${runId}.json`), { force: true });
+      await rm(resolveRunPath(`${runId}.events.jsonl`), { force: true });
+      await rm(resolveRunPath(runId), { recursive: true, force: true });
+      return Boolean(run);
+    },
+    async clearRuns(): Promise<number> {
+      const runs = await this.listRuns();
+      for (const run of runs) {
+        await this.deleteRun(run.runId);
+      }
+      return runs.length;
     }
   };
 }

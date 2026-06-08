@@ -3,12 +3,13 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { checkSourceHealth, defaultSubscriptions, readSubscriptions } from "../../packages/config/src/subscriptions.js";
+import { buildSubscriptionFromDraft, checkSourceHealth, defaultSubscriptions, fixedAiHotSubscription, previewSubscription, readSubscriptions } from "../../packages/config/src/subscriptions.js";
 
 test("subscriptions fall back to AI HOT defaults when config is missing", async () => {
   const subscriptions = await readSubscriptions(path.join(os.tmpdir(), "trendforge-missing-subscriptions.json"));
 
   assert.deepEqual(subscriptions, defaultSubscriptions);
+  assert.equal(fixedAiHotSubscription.id, "aihot-default");
 });
 
 test("source health classifies healthy and disabled subscriptions", async () => {
@@ -82,5 +83,36 @@ test("subscriptions read valid local config entries", async () => {
     assert.equal(subscriptions[0].enabled, true);
   } finally {
     await rm(tempDir, { recursive: true, force: true });
+  }
+});
+
+test("subscription preview derives RSSHub title and generated id without frontend id", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input) => {
+    assert.equal(String(input), "https://rsshub.app/anthropic/research");
+    return new Response(`<?xml version="1.0"?>
+<rss version="2.0"><channel><title>Anthropic Research</title><item><title>Research item</title><link>https://example.com/research</link><description>Research summary</description></item></channel></rss>`);
+  }) as typeof fetch;
+
+  try {
+    const preview = await previewSubscription({
+      type: "rsshub",
+      source: "rsshub://anthropic/research"
+    });
+    const { subscription, health } = await buildSubscriptionFromDraft({
+      type: "rsshub",
+      source: "rsshub://anthropic/research"
+    });
+
+    assert.equal(preview.ok, true);
+    assert.equal(preview.normalizedSource, "rsshub://anthropic/research");
+    assert.equal(preview.resolvedUrl, "https://rsshub.app/anthropic/research");
+    assert.equal(preview.title, "Anthropic Research");
+    assert.equal(subscription.id, "rsshub-anthropic-research");
+    assert.equal(subscription.title, "Anthropic Research");
+    assert.equal(subscription.source, "rsshub://anthropic/research");
+    assert.equal(health.status, "healthy");
+  } finally {
+    globalThis.fetch = originalFetch;
   }
 });

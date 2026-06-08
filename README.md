@@ -1,69 +1,66 @@
 # TrendForge
 
-TrendForge 是一个本地优先的 AI 热点内容生产工作台。它把 AIHot/RSS 信号转成可审阅的中文总结、平台草稿、配图计划、发布工作流交接文件，以及受控的微信公众号/小红书草稿创建流程。
-
-当前端到端流程是：
+TrendForge 是一个本地优先的 AI 热点内容生产工作台。当前 Web 工作台第一阶段先收敛为 AIHot-only 流程：
 
 ```text
-AIHot/RSS 输入
--> 简略信息校验
--> 热点筛选
--> BrowserAct/MediaCrawler 原文获取
--> 中文总结
--> Review/微信公众号/小红书草稿
--> 图片资产规划与审批
--> 微信公众号/小红书草稿创建 gate
--> run history、events、artifacts、review queue 查询
+AIHot 日报 -> 选择信息 -> 热点分析 -> 查看原因/总结/评分 -> 人工勾选候选 -> 生成 review/微信公众号/小红书草稿 -> 运行历史
 ```
 
-正式发布默认禁用。真实创建平台草稿必须显式开启，并通过对应平台的健康检查。
+RSS/RSSHub 后端能力仍然保留，但前端订阅添加和渠道库入口暂时隐藏。这样可以先把 AIHot 到平台草稿的主链路做稳定，再逐步恢复多来源订阅。
 
 ## 当前能力
 
-- API 后台：运行和查询本地 pipeline。
-- CLI：支持 fixture 运行、本地 pipeline 运行、run history、events、sources、publishers 查询。
-- Web 工作台：支持模型设置、订阅源管理、pipeline 运行、run history、artifact 阅读、review queue、图片资产审批和平台 gate 状态查看。
-- AIHot 优先的信息源策略，AIHot RSS/RSSHub 作为订阅和 fallback 路径。
-- BrowserAct 原文获取计划或命令式执行；MediaCrawler 只在显式启用并完成合规判断后作为 fallback。
-- 默认使用确定性的本地 text provider，支持 OpenAI-compatible 模型接入。
-- 微信公众号草稿 gate：基于 `appId`、`appSecret`、token 检查、`coverMediaId` 和官方草稿 API wrapper。
-- 小红书浏览器草稿 gate：基于 `xhs-browser-draft-setup`、Hermes、bridge、Chrome 扩展、登录态检查和页面级“草稿已保存”信号。
-- 图片资产默认规划：微信公众号 `16:9` 封面，小红书 `3:4` 图文资产。
+- Web 工作台：中文界面，展示 AIHot 日报、热点分析、候选评审、草稿生成、阻塞提醒、运行历史和基础配置。
+- AIHot 固定源：自动获取最新 AI 热点，支持全选或逐条选择进入热点分析。
+- 热点分析：只分析用户选择的 AIHot 条目，输出候选评分、入选原因、中文总结、风险提示和原文状态。
+- 原文获取：候选入选后可通过 HTTP/RSS、BrowserAct planned command 或显式启用的 MediaCrawler fallback 补全原文。
+- 草稿生成：支持 review、微信公众号、小红书三类本地产物和配图计划。
+- 平台交接：微信走官方 API 工作流 gate，小红书走 Hermes/bridge/Chrome extension 工作流 gate；正式发布保持禁用。
+- 运行历史：支持查看 run、events、artifacts、删除单条历史和清空全部历史。
 
 ## 快速开始
 
+安装依赖：
+
 ```powershell
 npm.cmd install --cache .\.npm-cache
+```
+
+构建和测试：
+
+```powershell
 npm.cmd run build
 npm.cmd run web:build
 npm.cmd test
 ```
 
-启动本地 API：
+Windows 一键启动本地 API 和 Web 工作台：
 
 ```powershell
-npm.cmd run api
+.\start-trendforge.bat
 ```
 
-另开终端启动 Web 工作台：
+启动后访问：
+
+- API: `http://127.0.0.1:4780`
+- Web: `http://127.0.0.1:5173/`
+
+停止本地服务：
 
 ```powershell
-npm.cmd run web:dev
+.\stop-trendforge.bat
 ```
 
-运行内置 fixture：
+运行日志写入：
 
-```powershell
-npm.cmd run cli -- run --run-id aihot-demo --query-file tests/fixtures/aihot/aihot-skill.json --top-n 1
-npm.cmd run cli -- run --run-id rss-demo --query-file tests/fixtures/rss/ai-workflow.xml --top-n 1
-npm.cmd run cli -- events --run-id rss-demo
-```
+- `workspace/api.log`
+- `workspace/api.err.log`
+- `workspace/web.log`
+- `workspace/web.err.log`
 
-## 本地配置
+## 模型配置
 
-运行配置和产物写入 `workspace/`，该目录已被 Git 忽略。
-
-模型可通过 Web 工作台配置，也可使用环境变量：
+模型可在 Web 工作台的“配置”区域设置，也可使用环境变量：
 
 ```powershell
 $env:TRENDFORGE_TEXT_PROVIDER = "openai-compatible"
@@ -76,39 +73,22 @@ $env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
 
 ## 主要 API
 
-- `POST /pipeline/run`
-- `GET /runs`
-- `GET /runs/:runId`
-- `GET /runs/:runId/events`
-- `GET /runs/:runId/review-queue`
-- `POST /runs/:runId/assets/:assetId/approve`
-- `GET /sources`
-- `GET /sources/health`
+- `GET /health`
+- `GET /sources/aihot/latest`
+- `GET /config/model`, `PUT /config/model`, `POST /verify/model`
+- `POST /pipeline/screen`
+- `POST /pipeline/drafts`
+- `GET /runs`, `DELETE /runs`, `GET /runs/:runId`, `DELETE /runs/:runId`
+- `GET /runs/:runId/events`, `GET /runs/:runId/review-queue`
+- `GET /items`, `GET /drafts`
+- `GET /artifacts?path=<workspace/runs/...>`
 - `GET /publishers`
-- `GET /config/model`, `PUT /config/model`
 - `GET /config/wechat`, `PUT /config/wechat`, `POST /verify/wechat`
 - `GET /config/xhs`, `PUT /config/xhs`, `POST /verify/xhs`
 - `POST /verify/browseract`
 - `POST /verify/mediacrawler`
-- `GET /artifacts?path=<workspace/runs/...>`
 
-## 项目结构
-
-- `apps/api`：本地 HTTP API。
-- `apps/cli`：本地 CLI 入口。
-- `apps/web`：浏览器工作台。
-- `packages/core`：pipeline 编排和领域类型。
-- `packages/config`：source 默认值、订阅、本地模型/微信/小红书配置。
-- `packages/sources`：AIHot、RSS/RSSHub、BrowserAct、MediaCrawler source adapter。
-- `packages/verifier`：source item 校验和原文获取。
-- `packages/selector`：打分和 Top N 筛选。
-- `packages/providers`：BrowserAct provider、确定性 text provider、OpenAI-compatible text/selector provider。
-- `packages/generator`：Review/微信公众号/小红书草稿生成。
-- `packages/media`：图片资产规划。
-- `packages/publishers`：微信公众号/小红书交接和真实草稿 gate。
-- `packages/storage`：本地 run history 和 event 存储。
-- `docs`：长期维护和开发文档。
-- `workspace`：本地运行数据，默认不提交。
+RSS/RSSHub 相关 API 仍保留，供后续重新开放前端渠道库时使用。
 
 ## 文档
 
@@ -123,7 +103,7 @@ $env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
 
 ## 开源参考
 
-TrendForge 通过 adapter、本地 skill 或 planned command handoff 参考/集成以下项目：
+TrendForge 通过 adapter、本地 skill 或 planned command handoff 参考和集成以下项目：
 
 - [RSSHub](https://github.com/DIYgod/RSSHub)
 - [BrowserAct skills](https://github.com/browser-act/skills)

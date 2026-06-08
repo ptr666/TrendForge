@@ -9,9 +9,9 @@
     "check": "tsc -p tsconfig.json --noEmit",
     "cli": "node dist/apps/cli/src/index.js",
     "api": "node dist/apps/api/src/server.js",
-    "web:dev": "vite --host 127.0.0.1 apps/web",
-    "web:build": "vite build apps/web",
-    "web:preview": "vite preview --host 127.0.0.1 apps/web",
+    "web:dev": "vite --host 127.0.0.1",
+    "web:build": "vite build",
+    "web:preview": "vite preview --host 127.0.0.1",
     "test": "node --test \"dist/tests/**/*.test.js\""
   },
   "engines": {

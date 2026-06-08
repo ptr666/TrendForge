@@ -96,11 +96,16 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
       body: JSON.stringify({
         enabled: true,
         provider: "openai-compatible",
-        baseUrl: "https://models.example.test/v1",
+        baseUrl: "http://127.0.0.1:1/v1",
         model: "summary-model",
         apiKey: "fixture-model-key"
       })
     }) as { keyConfigured?: boolean; keyPreview?: string; apiKey?: string };
+    const modelVerification = await requestJson(`${baseUrl}/verify/model`, {
+      method: "POST",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; failureReason?: string };
+    await requestJson(`${baseUrl}/health`);
     const savedWechat = await requestJson(`${baseUrl}/config/wechat`, {
       method: "PUT",
       headers: { "content-type": "application/json" },
@@ -120,8 +125,83 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
         bridgeUrl: "ws://localhost:9343"
       })
     }) as { enabled?: boolean; projectDir?: string; bridgeUrl?: string };
-    const subscriptions = await requestJson(`${baseUrl}/subscriptions`) as { subscriptions?: Array<{ id: string }> };
-    const sources = await requestJson(`${baseUrl}/sources`) as { health?: Array<{ id: string; status: string; itemCount: number }> };
+    await requestJson(`${baseUrl}/subscriptions`) as { subscriptions?: Array<{ id: string }> };
+    const savedSubscriptions = await requestJson(`${baseUrl}/subscriptions`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        subscriptions: [
+          {
+            id: "screen-rss",
+            title: "Screen RSS",
+            type: "rss",
+            source: rss,
+            enabled: true
+          }
+        ]
+      })
+    }) as { subscriptions?: Array<{ id: string }> };
+    const emptySubscriptions = await requestJson(`${baseUrl}/subscriptions`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subscriptions: [] })
+    }) as { subscriptions?: Array<{ id: string }> };
+    const readEmptySubscriptions = await requestJson(`${baseUrl}/subscriptions`) as { subscriptions?: Array<{ id: string }> };
+    const upsertedSubscription = await requestJson(`${baseUrl}/subscriptions/upsert`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        type: "rss",
+        source: rss,
+        titleOverride: "Screen RSS",
+        enabled: true
+      })
+    }) as { ok?: boolean; subscription?: { id: string; title: string }; health?: { status: string; itemCount: number }; subscriptions?: Array<{ id: string }> };
+    const failedUpsert = await requestJson(`${baseUrl}/subscriptions/upsert`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        existingId: "broken-rss",
+        type: "rss",
+        source: "https://127.0.0.1:1/not-found.xml",
+        titleOverride: "Broken RSS",
+        enabled: true
+      })
+    }) as { ok?: boolean; health?: { status: string; errorCategory: string }; subscriptions?: Array<{ id: string }> };
+    const deletedSubscription = await requestJson(`${baseUrl}/subscriptions/broken-rss`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; subscriptions?: Array<{ id: string }> };
+    await requestJson(`${baseUrl}/config/model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: false,
+        provider: "deterministic",
+        baseUrl: "https://api.deepseek.com",
+        model: "deepseek-v4-flash"
+      })
+    });
+    const screenRun = await requestJson(`${baseUrl}/pipeline/screen`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId: "api-screen-flow",
+        sourceIds: [upsertedSubscription.subscription?.id, "aihot-default"].filter(Boolean),
+        candidateCount: 2
+      })
+    }) as { runId?: string; candidateReviews?: Array<{ sourceItemId: string; score: number; summary?: { summary?: string } }>; drafts?: unknown[] };
+    const draftRun = await requestJson(`${baseUrl}/pipeline/drafts`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        runId: "api-screen-flow",
+        sourceItemIds: screenRun.candidateReviews?.slice(0, 1).map((candidate) => candidate.sourceItemId),
+        requestedPlatforms: ["review", "wechat", "xhs"],
+        allowRealDraft: false
+      })
+    }) as { drafts?: Array<{ platform: string }>; candidateReviews?: Array<{ sourceItemId: string }>; publishResults?: Array<{ status: string }> };
+    const sources = await requestJson(`${baseUrl}/sources`) as { fixedSources?: { aihot?: { id: string } }; subscriptions?: Array<{ id: string; type: string }>; health?: Array<{ id: string; status: string; itemCount: number }> };
     const sourceHealth = await requestJson(`${baseUrl}/sources/health`) as { health?: Array<{ id: string; status: string }> };
     const publishers = await requestJson(`${baseUrl}/publishers`) as { publishers?: Array<{ platform: string; ok: boolean; gate?: { status: string; message: string } }> };
     const rssValidation = await requestJson(`${baseUrl}/subscriptions/validate`, {
@@ -138,6 +218,16 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
       method: "POST",
       headers: { "content-type": "application/json" }
     }) as { ok?: boolean; status?: string; projectDir?: string };
+    const deletedRun = await requestJson(`${baseUrl}/runs/api-rss-e2e`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; runId?: string };
+    const runsAfterDelete = await requestJson(`${baseUrl}/runs`) as { runs?: Array<{ runId: string }> };
+    const clearedRuns = await requestJson(`${baseUrl}/runs`, {
+      method: "DELETE",
+      headers: { "content-type": "application/json" }
+    }) as { ok?: boolean; deleted?: number };
+    const runsAfterClear = await requestJson(`${baseUrl}/runs`) as { runs?: Array<{ runId: string }> };
 
     assert.equal(run.runId, "api-rss-e2e");
     assert.equal(approvedAsset.ok, true);
@@ -169,15 +259,38 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.equal(savedModel.keyConfigured, true);
     assert.match(savedModel.keyPreview ?? "", /^\*+-key$/);
     assert.equal(savedModel.apiKey, undefined);
+    assert.equal(modelVerification.ok, false);
+    assert.match(modelVerification.failureReason ?? "", /fetch failed|ECONNREFUSED|Text provider failed/i);
     assert.equal(savedWechat.secretConfigured, true);
     assert.match(savedWechat.secretPreview ?? "", /^\*+-key$/);
     assert.equal(savedWechat.appSecret, undefined);
     assert.equal(savedWechat.coverMediaId, "cover-media-id");
     assert.equal(savedXhs.enabled, true);
     assert.equal(savedXhs.bridgeUrl, "ws://localhost:9343");
-    assert.ok(subscriptions.subscriptions?.some((subscription) => subscription.id === "aihot-skill"));
-    assert.ok(sources.health?.some((health) => health.id === "aihot-skill"));
-    assert.ok(sourceHealth.health?.some((health) => health.id === "aihot-skill"));
+    assert.ok(savedSubscriptions.subscriptions?.some((subscription) => subscription.id === "screen-rss"));
+    assert.equal(emptySubscriptions.subscriptions?.length, 0);
+    assert.equal(readEmptySubscriptions.subscriptions?.length, 0);
+    assert.equal(upsertedSubscription.ok, true);
+    assert.match(upsertedSubscription.subscription?.id ?? "", /^rss-/);
+    assert.equal(upsertedSubscription.subscription?.title, "Screen RSS");
+    assert.equal(upsertedSubscription.health?.status, "healthy");
+    assert.equal(upsertedSubscription.health?.itemCount, 2);
+    assert.equal(failedUpsert.ok, true);
+    assert.equal(failedUpsert.health?.status, "failed");
+    assert.ok(failedUpsert.subscriptions?.some((subscription) => subscription.id === "broken-rss"));
+    assert.equal(deletedSubscription.ok, true);
+    assert.equal(deletedSubscription.subscriptions?.some((subscription) => subscription.id === "broken-rss"), false);
+    assert.equal(screenRun.runId, "api-screen-flow");
+    assert.equal(screenRun.candidateReviews?.length, 2);
+    assert.equal(screenRun.drafts?.length, 0);
+    assert.ok(screenRun.candidateReviews?.every((candidate) => typeof candidate.score === "number" && candidate.summary?.summary));
+    assert.equal(draftRun.candidateReviews?.length, 2);
+    assert.deepEqual(draftRun.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
+    assert.ok(draftRun.publishResults?.every((publishResult) => publishResult.status === "queued"));
+    assert.ok(sources.health?.some((health) => health.id === upsertedSubscription.subscription?.id));
+    assert.equal(sources.fixedSources?.aihot?.id, "aihot-default");
+    assert.equal(sources.subscriptions?.some((subscription) => subscription.type === "aihot"), false);
+    assert.equal(sourceHealth.health?.some((health) => health.id === "aihot-default"), false);
     assert.ok(publishers.publishers?.some((publisher) => publisher.platform === "wechat" && publisher.ok === false && publisher.gate?.status === "blocked"));
     assert.ok(publishers.publishers?.some((publisher) => publisher.platform === "xhs" && publisher.ok === false && publisher.gate?.status === "blocked"));
     assert.equal(rssValidation.ok, true);
@@ -189,6 +302,12 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.equal(mediaCrawler.hasPyproject, true);
     assert.equal(xhsVerification.status, "blocked");
     assert.match(xhsVerification.projectDir ?? "", /xiaohongshu-skills/);
+    assert.equal(deletedRun.ok, true);
+    assert.equal(deletedRun.runId, "api-rss-e2e");
+    assert.equal(runsAfterDelete.runs?.some((entry) => entry.runId === "api-rss-e2e"), false);
+    assert.equal(clearedRuns.ok, true);
+    assert.ok((clearedRuns.deleted ?? 0) >= 1);
+    assert.equal(runsAfterClear.runs?.length, 0);
   } finally {
     child.kill();
     await new Promise((resolve) => child.once("exit", resolve));
