@@ -48,7 +48,7 @@ test("CLI can run RSS pipeline and read back run history events", async () => {
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && typeof publishResult.artifactPath === "string"));
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.equal(runs.runs?.[0]?.runId, "cli-rss-e2e");
-    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
+    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "http"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(runsDir, { recursive: true, force: true });
@@ -77,7 +77,7 @@ test("CLI can run AIHot fixture pipeline and read back run history events", asyn
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "wechat" && typeof publishResult.artifactPath === "string"));
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.ok(events.events?.some((event) => event.stage === "collect" && event.adapter === "aihot"));
-    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && typeof event.artifactPath === "string"));
+    assert.ok(events.events?.some((event) => event.stage === "fetch_full_text" && event.adapter === "http"));
     assert.ok(events.events?.some((event) => event.stage === "finished" && event.status === "success"));
   } finally {
     await rm(runsDir, { recursive: true, force: true });

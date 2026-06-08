@@ -1,28 +1,105 @@
 import type { ArticleSummary, CandidateSelection, DraftGenerator, PlatformDraft, VerifiedArticle } from "../../core/src/types.js";
 
+function bulletList(points: string[]): string {
+  return points.length > 0 ? points.map((point) => `- ${point}`).join("\n") : "- 暂无关键点。";
+}
+
+function sourceExcerpt(article: VerifiedArticle): string {
+  const text = article.fullText ?? article.failureReason ?? "暂无可用原文。";
+  return text.trim().slice(0, 1600);
+}
+
+function translatedOriginal(summary: ArticleSummary, article: VerifiedArticle): string {
+  return summary.translatedOriginal?.trim() || `未生成中文译文。当前原文状态：${article.status}，获取方式：${article.method}。`;
+}
+
 function baseDraft(platform: PlatformDraft["platform"], selection: CandidateSelection, article: VerifiedArticle, summary: ArticleSummary): PlatformDraft {
-  const platformLabel = platform === "wechat" ? "WeChat" : platform === "xhs" ? "XHS" : "review";
-  const title = platform === "review" ? `TrendForge ${platformLabel} draft` : summary.title;
-  const sourceText = article.fullText ?? article.failureReason ?? "No full text available yet.";
-  const keyPoints = summary.keyPoints.map((point) => `- ${point}`).join("\n");
+  const title = platform === "review" ? `TrendForge 评审稿：${summary.title}` : summary.title;
+  const keyPoints = bulletList(summary.keyPoints);
+  const risks = summary.riskNotes.length > 0 ? bulletList(summary.riskNotes) : "- 暂无明确风险。";
+
   const body = platform === "xhs"
-      ? `${summary.summary}\n\n${summary.angle}\n\n${summary.keyPoints.join("\n")}\n\n#AI热点 #趋势观察 #内容工作流`
+    ? [
+      `# ${summary.title}`,
+      "",
+      summary.summary,
+      "",
+      "## 值得关注",
+      summary.angle,
+      "",
+      "## 关键信息",
+      keyPoints,
+      "",
+      "## 可用标签",
+      "#AI热点 #趋势观察 #内容工作流",
+      "",
+      "## 图片需求",
+      "未配置图片生成模型时不自动申请图片生成。若需要配图，请单独配置图片模型后再生成平台资产。"
+    ].join("\n")
     : platform === "wechat"
-      ? `# ${title}\n\n${summary.summary}\n\n## 为什么值得关注\n\n${summary.angle}\n\n## 关键信息\n\n${keyPoints}\n\n> 选材理由：${selection.reason}`
-      : `## ${title}\n\n${summary.summary}\n\n### 内容角度\n\n${summary.angle}\n\n### 关键信息\n\n${keyPoints}\n\n### 原文摘录\n\n${sourceText.slice(0, 1000)}\n\n选题评分：${selection.score}\n选材理由：${selection.reason}`;
+      ? [
+        `# ${summary.title}`,
+        "",
+        "## 开头摘要",
+        summary.summary,
+        "",
+        "## 为什么值得关注",
+        summary.angle,
+        "",
+        "## 关键信息",
+        keyPoints,
+        "",
+        "## 原文中文译文",
+        translatedOriginal(summary, article),
+        "",
+        "## 风险与待核查",
+        risks,
+        "",
+        `> 选材理由：${selection.reason}`
+      ].join("\n")
+      : [
+        `# ${title}`,
+        "",
+        "## 选题评分",
+        `${selection.score} / 100`,
+        "",
+        "## 入选理由",
+        selection.reason,
+        "",
+        "## 内容角度",
+        summary.angle,
+        "",
+        "## 中文总结",
+        summary.summary,
+        "",
+        "## 原文中文译文",
+        translatedOriginal(summary, article),
+        "",
+        "## 关键信息",
+        keyPoints,
+        "",
+        "## 风险与待核查",
+        risks,
+        "",
+        "## 原文摘录",
+        sourceExcerpt(article)
+      ].join("\n");
+
   return {
     id: `${platform}-${selection.sourceItemId}`,
     sourceItemId: selection.sourceItemId,
     platform,
     title,
     body,
-    digest: selection.reason,
+    digest: summary.summary,
     tone: platform === "xhs" ? "short_social" : platform === "wechat" ? "longform" : "review",
     metadata: {
       summary,
+      translatedOriginal: summary.translatedOriginal,
       articleStatus: article.status,
       evidenceUrl: article.evidenceUrl,
-      riskNotes: summary.riskNotes
+      riskNotes: summary.riskNotes,
+      imagePolicy: "图片生成模型未单独配置时，不自动申请图片生成。"
     }
   };
 }

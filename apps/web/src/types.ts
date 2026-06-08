@@ -64,12 +64,22 @@ export interface AiHotLatest {
 
 export interface RunSummary {
   runId: string;
+  path?: string;
   updatedAt: string;
 }
 
 export interface PublicModelConfig {
   enabled: boolean;
   provider: "deterministic" | "openai-compatible";
+  baseUrl: string;
+  model: string;
+  keyConfigured: boolean;
+  keyPreview?: string;
+}
+
+export interface PublicImageModelConfig {
+  enabled: boolean;
+  provider: "none" | "openai-compatible";
   baseUrl: string;
   model: string;
   keyConfigured: boolean;
@@ -87,6 +97,8 @@ export interface PublicWechatConfig {
   secretConfigured: boolean;
   secretPreview?: string;
   coverMediaId?: string;
+  coverImagePath?: string;
+  legacyCredentialSource?: string;
 }
 
 export interface PublicXhsConfig {
@@ -110,6 +122,7 @@ export interface ProviderState {
   browserAct?: { enabled: boolean; command: string };
   text?: { provider: string; baseUrl: string; model: string; keyConfigured: boolean; keyPreview?: string };
   localModel?: PublicModelConfig;
+  imageModel?: PublicImageModelConfig;
   wechat?: PublicWechatConfig;
   xhs?: PublicXhsConfig;
   mediaCrawler?: { enabled: boolean; requiresComplianceCheck: boolean; allowedPlatforms: string[] };
@@ -126,6 +139,26 @@ export interface VerificationResult {
   summary?: Record<string, unknown>;
   items?: Array<Record<string, unknown>>;
   [key: string]: unknown;
+}
+
+export interface AcceptedRun {
+  ok: boolean;
+  runId: string;
+  status: "accepted";
+}
+
+export type TaskKind = "screen" | "drafts" | "publish";
+
+export interface TaskProgress {
+  kind: TaskKind;
+  runId: string;
+  title: string;
+  startedAt: number;
+  currentStage: string;
+  processedCount: number;
+  elapsedMs: number;
+  status: "running" | "success" | "failed";
+  failureReason?: string;
 }
 
 export interface CandidateReview {
@@ -147,6 +180,7 @@ export interface CandidateReview {
   summary: {
     sourceItemId: string;
     title: string;
+    translatedOriginal?: string;
     summary: string;
     angle: string;
     keyPoints: string[];
@@ -200,4 +234,5 @@ export interface RunSettings {
   platforms: Platform[];
   allowBrowserFallback: boolean;
   allowMediaCrawlerFallback: boolean;
+  allowRealDraft: boolean;
 }

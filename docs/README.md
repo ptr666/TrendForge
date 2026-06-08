@@ -5,7 +5,7 @@
 ## 推荐阅读顺序
 
 1. [完整使用流程](usage-flow.md)：按当前 Web 工作台跑通 AIHot-only 主流程。
-2. [本地环境](local-setup.md)：安装、启动、端口、日志、provider 和 smoke 验证。
+2. [本地环境](local-setup.md)：安装、启动、端口、日志、runsDir、provider 和 smoke 验证。
 3. [项目进度](project-progress.md)：当前已完成能力和后续端到端切片推进方式。
 4. [开发流程](development.md)：agent 或开发者如何按技能、TDD、适配器契约和文档同步推进。
 5. [外部项目与开源参考](vendor-projects.md)：AIHot、RSSHub、BrowserAct、MediaCrawler、微信和小红书相关参考边界。
@@ -28,11 +28,12 @@
 AIHot 日报
 -> 全选或选择信息
 -> 热点分析
--> 查看原因/总结/评分
+-> HTTP 原文获取
+-> 中文译文/中文总结/评分
 -> 人工勾选候选
 -> 生成平台草稿
--> 配图计划
 -> 平台 handoff
+-> artifact 阅读器
 -> 运行历史查询/清理
 ```
 

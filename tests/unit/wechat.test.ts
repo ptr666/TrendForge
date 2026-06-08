@@ -1,11 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   checkWechatDraftGate,
   createWechatOfficialPublisher,
   requestWechatAccessToken,
   requestWechatDraftAdd
 } from "../../packages/publishers/src/wechat.js";
+import { readWechatConfig, toPublicWechatConfig, writeWechatConfig } from "../../packages/config/src/local-config.js";
 import type { PlatformDraft } from "../../packages/core/src/types.js";
 
 test("WeChat token request calls official API and masks returned token", async () => {
@@ -73,6 +77,62 @@ test("WeChat draft gate requires cover media after token check passes", async ()
   assert.equal(JSON.stringify(gate).includes("wechat-token"), false);
 });
 
+test("WeChat draft gate accepts a local cover image path after token check passes", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-wechat-cover-gate-"));
+  const coverPath = path.join(rootDir, "cover.png");
+  await writeFile(coverPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+  try {
+    const gate = await checkWechatDraftGate({
+      enabled: true,
+      appId: "wx-app",
+      appSecret: "wx-secret",
+      coverImagePath: coverPath
+    }, {
+      allowRealDraft: true,
+      fetchImpl: async () => new Response(JSON.stringify({
+        access_token: "wechat-token",
+        expires_in: 7200
+      }), { status: 200, headers: { "content-type": "application/json" } })
+    });
+
+    assert.equal(gate.ok, true);
+    assert.equal(gate.status, "ready");
+    assert.match(gate.message, /cover image/i);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("WeChat config can inherit credentials from the official-account legacy script without exposing the secret", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-wechat-legacy-"));
+  const legacyPath = path.join(rootDir, "wechat-publish-v3.js");
+
+  await writeFile(legacyPath, [
+    "const APPID = 'wx-legacy-app';",
+    "const APPSECRET = 'legacy-wechat-secret';"
+  ].join("\n"));
+
+  try {
+    await writeWechatConfig({
+      enabled: true,
+      appId: "",
+      legacyCredentialSource: legacyPath
+    }, rootDir);
+
+    const config = await readWechatConfig(rootDir);
+    const publicConfig = toPublicWechatConfig(config);
+
+    assert.equal(config.appId, "wx-legacy-app");
+    assert.equal(config.appSecret, "legacy-wechat-secret");
+    assert.equal(publicConfig.secretConfigured, true);
+    assert.match(publicConfig.secretPreview ?? "", /^\*+cret$/);
+    assert.equal("appSecret" in publicConfig, false);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
 test("WeChat draft creation calls official draft API and returns media id", async () => {
   const calls: string[] = [];
   const draft: PlatformDraft = {
@@ -105,12 +165,16 @@ test("WeChat draft creation calls official draft API and returns media id", asyn
 });
 
 test("WeChat official publisher creates a real draft only when gates pass", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-wechat-real-cover-"));
+  const coverPath = path.join(rootDir, "cover.png");
+  await writeFile(coverPath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
   const draft: PlatformDraft = {
     id: "wechat-source",
     sourceItemId: "source",
     platform: "wechat",
     title: "中文 AI 热点",
-    body: "# 中文 AI 热点\n\n这是一篇公众号草稿。",
+    body: "# 中文 AI 热点\n\n这是一篇公众号草稿。\n\n<img src=\"https://example.com/inline.png\">",
     digest: "用于测试的公众号摘要。"
   };
   const calls: string[] = [];
@@ -118,9 +182,9 @@ test("WeChat official publisher creates a real draft only when gates pass", asyn
     enabled: true,
     appId: "wx-app",
     appSecret: "wx-secret",
-    coverMediaId: "cover-media-id"
+    coverImagePath: coverPath
   }, {
-    fetchImpl: async (url) => {
+    fetchImpl: async (url, init) => {
       calls.push(String(url));
       const calledUrl = new URL(String(url));
       if (calledUrl.pathname.endsWith("/token")) {
@@ -128,6 +192,25 @@ test("WeChat official publisher creates a real draft only when gates pass", asyn
           status: 200,
           headers: { "content-type": "application/json" }
         });
+      }
+      if (calledUrl.pathname.endsWith("/material/add_material")) {
+        assert.equal(init?.method, "POST");
+        return new Response(JSON.stringify({ media_id: "uploaded-cover-media-id" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (calledUrl.pathname.endsWith("/media/uploadimg")) {
+        assert.equal(init?.method, "POST");
+        return new Response(JSON.stringify({ url: "https://mmbiz.qpic.cn/uploaded-inline.png" }), {
+          status: 200,
+          headers: { "content-type": "application/json" }
+        });
+      }
+      if (calledUrl.pathname.endsWith("/draft/add")) {
+        const body = JSON.parse(String(init?.body)) as { articles?: Array<{ thumb_media_id?: string; content?: string }> };
+        assert.equal(body.articles?.[0]?.thumb_media_id, "uploaded-cover-media-id");
+        assert.match(body.articles?.[0]?.content ?? "", /mmbiz\.qpic\.cn\/uploaded-inline\.png/);
       }
       return new Response(JSON.stringify({ media_id: "draft-media-id" }), {
         status: 200,
@@ -143,6 +226,9 @@ test("WeChat official publisher creates a real draft only when gates pass", asyn
   assert.equal(result.status, "success");
   assert.equal(result.externalId, "draft-media-id");
   assert.ok(calls.some((call) => call.includes("/cgi-bin/token")));
+  assert.ok(calls.some((call) => call.includes("/cgi-bin/material/add_material")));
+  assert.ok(calls.some((call) => call.includes("/cgi-bin/media/uploadimg")));
   assert.ok(calls.some((call) => call.includes("/cgi-bin/draft/add")));
   assert.equal(JSON.stringify(result).includes("wechat-token"), false);
+  await rm(rootDir, { recursive: true, force: true });
 });

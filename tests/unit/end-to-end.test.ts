@@ -26,6 +26,17 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
   const store = createRunStore({ rootDir });
   const pipeline = createDefaultPipeline({
     store,
+    fullTextProvider: {
+      async acquire(item, article) {
+        return {
+          ...article,
+          status: "verified",
+          method: "http",
+          evidenceUrl: item.url,
+          fullText: "HTTP original article text for deterministic end-to-end evidence."
+        };
+      }
+    },
     fullTextHandoffDir: path.join(rootDir, "full-text-handoffs"),
     publisherHandoffDir: path.join(rootDir, "publisher-handoffs")
   });
@@ -48,12 +59,13 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
 
     assert.equal(savedRun?.sourceItems[0]?.collectorAdapter, "rsshub");
     assert.equal(savedRun?.sourceItems[0]?.sourceType, "rss");
-    assert.equal(savedRun?.verifiedArticles[0]?.status, "partial");
+    assert.equal(savedRun?.verifiedArticles[0]?.status, "verified");
+    assert.equal(savedRun?.verifiedArticles[0]?.method, "http");
+    assert.equal(typeof savedRun?.verifiedArticles[0]?.fullTextArtifactPath, "string");
     assert.equal(savedRun?.selections.length, 1);
     assert.equal(savedRun?.summaries.length, 1);
     assert.deepEqual(savedRun?.drafts.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
-    assert.ok(savedRun?.assets.some((asset) => asset.type === "cover" && asset.ratio === "16:9"));
-    assert.ok(savedRun?.assets.some((asset) => asset.type === "xhs_image" && asset.ratio === "3:4"));
+    assert.deepEqual(savedRun?.assets, []);
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "wechat" && publishResult.status === "queued"));
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "xhs" && publishResult.status === "queued"));
     assert.ok(savedRun?.publishResults.some((publishResult) => publishResult.platform === "wechat"
@@ -71,12 +83,8 @@ test("RSS pipeline run can be read back with end-to-end draft evidence", async (
 
     assert.ok(events.some((event) => event.stage === "collect" && event.adapter === "rsshub" && event.status === "finished"));
     assert.ok(events.some((event) => event.stage === "score"));
-    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "planned"));
-    const browserActHandoff = events.find((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "planned")?.artifactPath;
-    assert.equal(typeof browserActHandoff, "string");
-    const browserActContent = JSON.parse(await readFile(browserActHandoff as string, "utf8")) as Record<string, unknown>;
-    assert.equal(browserActContent.workflow, "browseract-full-text-acquisition");
-    assert.equal(browserActContent.fallbackWorkflow, "mediacrawler-full-text-fallback");
+    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "http" && event.status === "started"));
+    assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "http" && event.status === "verified" && typeof event.artifactPath === "string"));
     assert.ok(events.some((event) => event.stage === "summarize"));
     assert.ok(events.some((event) => event.stage === "generate" && event.count === 3));
     assert.ok(events.some((event) => event.stage === "compose_media"));
@@ -127,11 +135,10 @@ test("selected RSS item can use BrowserAct full text before summary and drafts",
     assert.match(fullTextArtifact, /method: browseract/);
     assert.match(fullTextArtifact, /# AI agents reshape product research/);
     assert.match(fullTextArtifact, /Complete BrowserAct article text/);
-    assert.match(savedRun?.summaries[0]?.summary ?? "", /这条 AI 热点信号显示：Complete BrowserAct article text/);
-    assert.match(savedRun?.summaries[0]?.summary ?? "", /product research angle/);
-    assert.equal(savedRun?.summaries[0]?.keyPoints.length, 1);
-    assert.match(savedRun?.summaries[0]?.keyPoints[0] ?? "", /原文要点 1：Complete BrowserAct article text/);
-    assert.match(savedRun?.summaries[0]?.keyPoints[0] ?? "", /product research angle/);
+    assert.match(savedRun?.summaries[0]?.summary ?? "", /这条 AI 热点信号值得进入人工复核：Complete BrowserAct article text/);
+    assert.equal(savedRun?.summaries[0]?.keyPoints.length, 2);
+    assert.match(savedRun?.summaries[0]?.keyPoints[0] ?? "", /要点 1：Complete BrowserAct article text/);
+    assert.match(savedRun?.summaries[0]?.keyPoints[1] ?? "", /product research angle/);
     assert.ok(savedRun?.drafts.some((draft) => draft.body.includes("Complete BrowserAct article text")));
     assert.ok(events.some((event) => event.stage === "fetch_full_text" && event.adapter === "browseract" && event.status === "verified" && typeof event.artifactPath === "string"));
   } finally {

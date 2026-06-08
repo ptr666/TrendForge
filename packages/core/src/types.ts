@@ -40,6 +40,7 @@ export interface CandidateSelection {
 export interface ArticleSummary {
   sourceItemId: string;
   title: string;
+  translatedOriginal?: string;
   summary: string;
   angle: string;
   keyPoints: string[];
@@ -188,6 +189,14 @@ export interface PipelineDraftRequest {
   dryRunPublish?: boolean;
 }
 
+export interface PipelinePublishRequest {
+  runId: string;
+  draftIds?: string[];
+  sourceItemIds?: string[];
+  requestedPlatforms?: Platform[];
+  allowRealDraft?: boolean;
+}
+
 export interface PipelineRunResult {
   runId: string;
   status: "success" | "partial" | "failed";
@@ -257,6 +266,7 @@ export interface PublisherAdapter {
 }
 
 export interface RunStore {
+  rootDir: string;
   saveRun(result: PipelineRunResult): Promise<void>;
   appendEvent(runId: string, event: Record<string, unknown>): Promise<void>;
   readRun(runId: string): Promise<PipelineRunResult | undefined>;
@@ -264,4 +274,11 @@ export interface RunStore {
   listRuns(): Promise<Array<{ runId: string; path: string; updatedAt: string }>>;
   deleteRun(runId: string): Promise<boolean>;
   clearRuns(): Promise<number>;
+}
+
+export interface TrendForgePipeline {
+  screen(request: PipelineScreenRequest): Promise<PipelineRunResult>;
+  generateDrafts(request: PipelineDraftRequest): Promise<PipelineRunResult>;
+  publishDrafts(request: PipelinePublishRequest): Promise<PipelineRunResult>;
+  run(request: PipelineRunRequest): Promise<PipelineRunResult>;
 }

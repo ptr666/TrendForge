@@ -1,49 +1,40 @@
 # TrendForge 完整使用流程
 
-本文描述当前 Web 工作台的实际使用方式。第一阶段前端只开放 AIHot 固定源，RSS/RSSHub 订阅入口暂时隐藏；后端相关 API 和适配器保留，后续再恢复多来源订阅。
+本文记录当前 Web 工作台的实际操作方式。第一阶段前端只开放 AIHot 固定源；RSS/RSSHub API 和 adapter 仍保留，但订阅入口暂时隐藏。
 
-默认安全策略不变：可以生成本地草稿、配图计划和平台 handoff，但正式发布禁用；真实创建平台草稿必须显式开启并通过对应 health gate。
+默认安全策略不变：可以生成本地草稿和平台 handoff，但不会正式发布；真实创建微信公众号或小红书草稿必须显式开启并通过对应 gate。图片生成模型未单独配置时，系统不会申请图片生成，也不会生成图片审批队列。
 
 ## 1. 启动项目
 
-安装依赖：
-
 ```powershell
 npm.cmd install --cache .\.npm-cache
-```
-
-构建与测试：
-
-```powershell
 npm.cmd run build
 npm.cmd run web:build
 npm.cmd test
-```
-
-一键启动：
-
-```powershell
 .\start-trendforge.bat
 ```
 
-启动后访问：
+访问：
 
 - API: `http://127.0.0.1:4780`
 - Web: `http://127.0.0.1:5173/`
 
-停止服务：
+停止：
 
 ```powershell
 .\stop-trendforge.bat
 ```
 
-## 2. 配置模型和平台 gate
+## 2. 配置文本模型和平台 gate
 
-在 Web 工作台“配置”区域可以设置：
+在 Web 工作台“配置”区可以设置：
 
-- OpenAI-compatible 模型 provider。
-- 微信公众号 App ID、App Secret、封面 media ID。
+- OpenAI-compatible 文本模型 provider。
+- 微信公众号 App ID、App Secret、封面 media ID、本地封面路径或 legacy 凭据脚本。
 - 小红书 Hermes/bridge/Chrome extension 工作流配置。
+- 图片生成模型 provider。
+
+中文原文翻译和高质量中文总结依赖真实文本模型。未启用模型时，deterministic provider 只会生成中文占位摘要和原文摘录提示，不会假装完成翻译。
 
 模型也可以通过环境变量配置：
 
@@ -54,37 +45,40 @@ $env:TRENDFORGE_MODEL_API_KEY = "<api-key>"
 $env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
 ```
 
-配置后可使用页面里的“测试模型请求”“请求微信 token”“检查小红书 gate”验证状态。反馈默认显示可读中文说明，原始 JSON 只在“查看调试 JSON”中展开。
+配置后可使用页面里的“测试模型请求”“检查微信联通与上传 gate”“检查小红书 gate”验证状态。微信 gate 会先请求 `/cgi-bin/token`，成功后检查封面 media ID 或本地封面路径是否就绪；只有用户显式开启真实草稿时才会继续上传封面、正文图片并创建草稿。反馈默认显示可读中文，原始 JSON 只在调试区展开。
 
-## 3. 浏览 AIHot 日报
+微信公众号只输入 AppID 可以保存本地配置，但不能完成上传或创建草稿。真实公众号草稿创建需要 AppID、AppSecret、服务器 IP 白名单通过 token 检查，并提供封面 media ID 或本地封面路径。若填写本地封面路径，后端会使用微信官方 API，先通过 `/cgi-bin/material/add_material` 上传为永久素材并取得 `thumb_media_id`；草稿正文里的远程或本地图片会通过 `/cgi-bin/media/uploadimg` 转存到微信图床，最后调用 `/cgi-bin/draft/add` 创建草稿。
 
-打开 Web 工作台后，进入“AIHot 日报”区域：
+本地真实模型配置可以保存在 `workspace/config/model.json`，微信配置可以保存在 `workspace/config/wechat.json`，这些文件都被 `.gitignore` 忽略，适合保存 API key 和 AppSecret。微信配置也兼容 legacy 凭据脚本读取方式。提交代码或文档时不要把真实 key 或 secret 写入仓库。
+
+## 3. 阅读 AIHot 日报
+
+打开工作台后进入“AIHot 日报”：
 
 1. 页面自动请求 `GET /sources/aihot/latest`。
 2. 顶部展示 AIHot 健康状态、抓取数量、已选择数量和更新时间。
-3. 左侧“今日日报全文”可滚动阅读完整日报。
-4. 右侧条目列表支持逐条勾选。
-5. 点击“全选今日 AIHot”可以一次选择全部可见条目。
+3. 左侧“今日日报全文”按文章视图展示，可滚动完整阅读。
+4. 右侧条目卡支持逐条勾选、全选、取消全选。
+5. 每条有来源链接时可直接打开原文链接。
 
-如果 AIHot 获取失败，页面会显示失败原因和重试建议。当前前端不会展示 RSS/RSSHub 作为替代入口。
+如果 AIHot 获取失败，页面会展示失败原因和重试建议；当前前端不会展示 RSS/RSSHub 作为替代入口。
 
 ## 4. 热点分析
 
-进入“热点分析”区域：
+进入“热点分析”：
 
 1. 设置最终候选数量。
 2. 确认已选择的 AIHot 条目数量。
-3. 选择是否允许 BrowserAct 补全原文。
-4. 如确实需要，显式开启 MediaCrawler fallback。
-5. 点击“分析选中内容”。
+3. 按需允许 BrowserAct fallback 或 MediaCrawler fallback。
+4. 点击“分析选中内容”。
 
-前端会调用：
+前端调用：
 
 ```http
 POST /pipeline/screen
 ```
 
-请求示例：
+示例：
 
 ```json
 {
@@ -97,84 +91,134 @@ POST /pipeline/screen
 }
 ```
 
-`sourceItemIds` 会真实限制本次分析范围。未被选择的 AIHot 条目不会进入后续校验、评分、原文补全和总结。
+`sourceItemIds` 会真实限制本次分析范围。未被选择的 AIHot 条目不会进入校验、评分、原文获取和总结。
 
-## 5. 候选评审
+## 5. 原文获取
 
-热点分析完成后，进入“候选评审”区域。每张候选卡展示：
+当前默认链路：
 
-- 标题和来源链接。
-- 原文获取状态。
-- 评分和评分条。
-- 入选原因。
-- 中文总结和关键点。
-- 风险提示。
-- 原文 Markdown 产物入口。
+```text
+HTTP 原文抓取 -> BrowserAct fallback（显式启用） -> MediaCrawler fallback（显式启用）
+```
 
-用户可以逐条勾选候选，也可以“全选候选”。只有勾选的候选会进入草稿生成。
+- HTTP 抓取会从候选 URL 拉取 HTML/Markdown/plain text，清理后保存为 Markdown。
+- BrowserAct 未启用时不会伪装执行，也不会把 `Original text acquisition planned for BrowserAct.` 显示为用户风险提示。
+- MediaCrawler 只在用户显式开启 fallback 时留下 planned event。
+- 失败原因写入 run events 和候选原文状态。
 
-原文 Markdown 默认保存在：
+原文 Markdown 默认保存到：
 
 ```text
 workspace/runs/<runId>/full-text/
 ```
 
-BrowserAct planned handoff 默认保存在：
+如果设置了 `TRENDFORGE_RUNS_DIR`，则保存到对应 runsDir 下。
 
-```text
-workspace/runs/<runId>/full-text-handoffs/
-```
+## 6. 候选评审
 
-## 6. 生成草稿
+热点分析完成后进入“候选评审”。每张候选卡展示：
 
-进入“草稿生成”区域：
+- 标题和来源链接。
+- 原文获取状态和获取方式。
+- 评分和评分条。
+- 入选原因与内容角度。
+- 中文总结和关键点。
+- 中文译文：真实模型返回 `translatedOriginal` 时展示译文；未配置真实模型时显示“未生成中文译文”的说明。
+- 风险提示。
+- “打开原文 Markdown”按钮。
 
-1. 选择平台：`review`、`wechat`、`xhs`。
-2. 点击“生成草稿”。
-3. 查看各平台草稿标题、正文预览、配图计划和 publisher handoff 状态。
-4. 如需排障，展开“查看调试 JSON”。
+点击原文或草稿按钮会在当前页面打开产物阅读器。阅读器默认渲染 Markdown 预览，并隐藏顶部 frontmatter；原始 Markdown 只在折叠区保留。
 
-前端会调用：
+## 7. 生成本地草稿
+
+进入“草稿生成”：
+
+1. 勾选需要进入草稿阶段的候选。
+2. 选择平台：`review`、`wechat`、`xhs`。
+3. 点击“生成本地草稿”。
+
+前端调用：
 
 ```http
 POST /pipeline/drafts
 ```
 
-请求示例：
+示例：
 
 ```json
 {
   "runId": "screen-demo",
   "sourceItemIds": ["aihot-item-id-1"],
-  "requestedPlatforms": ["review", "wechat", "xhs"],
+  "requestedPlatforms": ["review", "wechat", "xhs"]
+}
+```
+
+产物默认保存到：
+
+- `workspace/runs/<runId>/drafts/`
+- `workspace/runs/<runId>/full-text/`
+
+草稿卡会展示 Markdown 渲染预览和打开产物按钮。这一步只生成本地 review/wechat/xhs 草稿，不创建 publisher handoff，也不会上传到微信或小红书。
+
+## 8. 推进平台草稿
+
+用户审阅本地草稿后，可以在“草稿生成”区域继续推进平台草稿：
+
+1. 确认已生成 wechat 或 xhs 本地草稿。
+2. 默认保持 dry-run，只生成 publisher handoff。
+3. 如需真实创建平台草稿，勾选“推进真实平台草稿”，并在二次确认后执行。
+4. 点击“推进平台草稿”。
+
+前端调用：
+
+```http
+POST /pipeline/publish-drafts
+```
+
+示例：
+
+```json
+{
+  "runId": "screen-demo",
+  "sourceItemIds": ["aihot-item-id-1"],
+  "requestedPlatforms": ["wechat", "xhs"],
   "allowRealDraft": false
 }
 ```
 
-产物保存位置：
+publisher handoff 默认保存到：
 
-- `workspace/runs/<runId>/drafts/`
 - `workspace/runs/<runId>/publisher-handoffs/`
-- `workspace/runs/<runId>/full-text/`
-- `workspace/runs/<runId>/full-text-handoffs/`
 
-## 7. 阻塞与提醒
+publisher handoff 是 JSON 产物。页面会用专门的 handoff 预览展示工作流、平台、草稿标题、正文预览、计划命令和验证信号；完整 JSON 只在“查看原始 JSON”或“查看格式化 JSON”中展开。
 
-旧的等待队列和人工审核入口已降级为“阻塞与提醒”。它不再是主流程入口，只展示异常和控制点：
+## 9. 图片生成策略
+
+图片生成模型与文本模型分开配置。当前默认行为是：
+
+- 未配置图片 provider：不生成图片资产、不生成图片 prompt、不进入图片审批队列。
+- 显式接入图片 provider 后：微信公众号默认规划 16:9 封面，小红书默认规划 3:4 图文资产，生成提示词并进入人工审批。
+
+这避免在只配置文本模型时误触发图片生成申请，也符合微信和小红书工作流里图片处理需要单独 gate 的要求。
+
+## 10. 阻塞与提醒
+
+“阻塞与提醒”不是主流程入口，只展示需要处理的问题：
 
 - 原文缺失或原文获取失败。
-- 图片资产需要审批。
-- 微信公众号或小红书 platform gate 阻塞。
+- 微信公众号或小红书 gate 阻塞。
 - publisher handoff 缺失或失败。
 - pipeline 运行级错误。
 
-## 8. 运行历史
+默认无图片 provider 时，不会出现图片审批提醒。
+
+## 11. 运行历史
 
 “运行历史”支持：
 
-- 查看历史 run。
-- 恢复候选、草稿和 artifact 详情。
-- 打开原文 Markdown 和草稿 Markdown。
+- 查看当前 `runsDir`、历史数量和更新时间。
+- 恢复历史 run。
+- 打开原文 Markdown、草稿 Markdown、publisher handoff。
 - 删除单条历史。
 - 清空全部历史。
 
@@ -186,20 +230,24 @@ POST /pipeline/drafts
 - `DELETE /runs/:runId`
 - `GET /runs/:runId/events`
 - `GET /runs/:runId/review-queue`
-- `GET /artifacts?path=<workspace/runs/...>`
+- `GET /artifacts?path=<runsDir 内路径>`
 
-## 9. RSS/RSSHub 当前状态
+启动脚本不会清空 runs。若历史看起来丢失，优先检查页面显示的 `runsDir` 是否与之前运行时一致。
+
+## 12. RSS/RSSHub 当前状态
 
 RSS/RSSHub 后端能力仍保留，包括订阅 CRUD、preview、healthcheck 和 RSSHub route 规范化。但当前 Web 工作台前端不显示订阅添加入口，也不会把 RSS/RSSHub 作为筛选来源。
 
-这样做是为了先稳定 AIHot 主链路，避免 RSSHub 公共实例不可达、Cloudflare challenge 或本地代理差异影响核心流程验证。
+恢复前端入口时，必须继续使用“预览/验证 -> 保存渠道 -> 本次筛选选择”的两段式流程。
 
-## 10. 中文乱码记录
+## 13. 中文编码规则
 
-本轮修复前，`apps/web/src/main.tsx`、`apps/web/src/components/panels.tsx`、`apps/web/src/components/ui.tsx`、`README.md` 和 `docs/usage-flow.md` 中存在中文乱码。原因是中文字符串曾被错误编码保存或被错误解码后再次写入。
+此前前端和文档曾出现 mojibake。后续中文编辑必须使用安全写入方式，优先 `apply_patch`，避免未声明编码的 shell 重定向。
 
-后续编辑中文文档和前端文案时必须注意：
+文档或 UI 文案变更后运行：
 
-- 优先使用 `apply_patch` 进行文本修改。
-- 避免用 shell 重定向或不明确编码的脚本批量写中文。
-- 构建前后检查页面和文档中的中文是否可读。
+```powershell
+npm.cmd run build
+npm.cmd run web:build
+npm.cmd test
+```

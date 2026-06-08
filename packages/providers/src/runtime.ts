@@ -1,8 +1,11 @@
-import type { FullTextProvider, Selector, TextProvider } from "../../core/src/types.js";
-import type { ModelConfig } from "../../config/src/local-config.js";
+import type { FullTextProvider, MediaComposer, Selector, TextProvider } from "../../core/src/types.js";
+import type { ImageModelConfig, ModelConfig } from "../../config/src/local-config.js";
+import { createDefaultMediaComposer } from "../../media/src/index.js";
 import {
   createBrowserActFullTextProvider,
   createDefaultTextProvider,
+  createHttpFullTextProvider,
+  createPromptOnlyImageProvider,
   createOpenAICompatibleSelector,
   createOpenAICompatibleTextProvider
 } from "./index.js";
@@ -11,14 +14,22 @@ export interface RuntimeProviders {
   fullTextProvider?: FullTextProvider;
   textProvider: TextProvider;
   selector?: Selector;
+  mediaComposer?: MediaComposer;
 }
 
-export function createRuntimeProviders(env: NodeJS.ProcessEnv = process.env, localModelConfig?: ModelConfig): RuntimeProviders {
-  const fullTextProvider = env.TRENDFORGE_ENABLE_BROWSERACT === "1"
+export function createRuntimeProviders(
+  env: NodeJS.ProcessEnv = process.env,
+  localModelConfig?: ModelConfig,
+  localImageModelConfig?: ImageModelConfig
+): RuntimeProviders {
+  const browserActProvider = env.TRENDFORGE_ENABLE_BROWSERACT === "1"
     ? createBrowserActFullTextProvider({
       command: env.TRENDFORGE_BROWSERACT_COMMAND || "browser-act"
     })
     : undefined;
+  const fullTextProvider = createHttpFullTextProvider({
+    fallback: browserActProvider
+  });
 
   const modelOptions = {
     baseUrl: env.TRENDFORGE_MODEL_BASE_URL ?? localModelConfig?.baseUrl ?? "https://api.openai.com/v1",
@@ -37,5 +48,9 @@ export function createRuntimeProviders(env: NodeJS.ProcessEnv = process.env, loc
     ? createOpenAICompatibleSelector(modelOptions)
     : undefined;
 
-  return { fullTextProvider, textProvider, selector };
+  const useImageProvider = env.TRENDFORGE_IMAGE_PROVIDER === "openai-compatible"
+    || localImageModelConfig?.enabled === true && localImageModelConfig.provider === "openai-compatible" && Boolean(localImageModelConfig.apiKey);
+  const mediaComposer = createDefaultMediaComposer(useImageProvider ? createPromptOnlyImageProvider() : undefined);
+
+  return { fullTextProvider, textProvider, selector, mediaComposer };
 }

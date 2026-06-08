@@ -8,7 +8,7 @@
 
 ## 安装
 
-这台机器建议使用项目内 npm cache，因为全局 npm cache 可能指向 workspace 之外：
+建议使用项目内 npm cache：
 
 ```powershell
 npm.cmd install --cache .\.npm-cache
@@ -17,7 +17,6 @@ npm.cmd install --cache .\.npm-cache
 ## 验证
 
 ```powershell
-npm.cmd run check
 npm.cmd run build
 npm.cmd run web:build
 npm.cmd test
@@ -25,13 +24,13 @@ npm.cmd test
 
 ## 一键启动和停止
 
-Windows 推荐直接使用根目录脚本：
+Windows 推荐使用根目录脚本：
 
 ```powershell
 .\start-trendforge.bat
 ```
 
-脚本会自动执行 `npm.cmd run build`，分别启动 API 和 Web，并在就绪后打开：
+脚本会执行 `npm.cmd run build`，分别启动 API 和 Web，并在就绪后打开：
 
 ```text
 http://127.0.0.1:5173/
@@ -49,12 +48,14 @@ http://127.0.0.1:4780
 .\stop-trendforge.bat
 ```
 
-日志写入：
+运行日志写入：
 
 - `workspace/api.log`
 - `workspace/api.err.log`
 - `workspace/web.log`
 - `workspace/web.err.log`
+
+启动脚本不会清空运行历史。运行历史默认在 `workspace/runs/`，也可以通过 `TRENDFORGE_RUNS_DIR` 覆盖。Web 运行历史区域会显示当前 `runsDir`。
 
 ## 手动运行
 
@@ -76,21 +77,21 @@ Web UI 默认访问 `http://127.0.0.1:4780`。如需覆盖：
 $env:VITE_TRENDFORGE_API = "http://127.0.0.1:4780"
 ```
 
-## 运行 CLI
+## CLI
 
-CLI 仍可用于开发 smoke：
+CLI 可用于开发 smoke：
 
 ```powershell
 npm.cmd run cli -- run --query "AI workflow demo" --platforms review,wechat,xhs
 ```
 
-命令会把运行记录写入 `workspace/runs/`。
+命令会把运行记录写入当前 runsDir。
 
 ## 可用 API
 
 基础状态：
 
-- `GET /health`
+- `GET /health`：返回 API 状态和 `runsDir`。
 - `GET /providers`
 
 配置：
@@ -104,26 +105,27 @@ npm.cmd run cli -- run --query "AI workflow demo" --platforms review,wechat,xhs
 - `GET /config/xhs`
 - `PUT /config/xhs`
 
-订阅和来源：
+来源：
 
+- `GET /sources/aihot/latest`
+- `GET /sources`
+- `GET /sources/health`
 - `GET /subscriptions`
 - `PUT /subscriptions`
 - `POST /subscriptions/upsert`
 - `DELETE /subscriptions/:sourceId`
 - `POST /subscriptions/validate`
-- `GET /sources`
-- `GET /sources/health`
-- `POST /verify/rss`
 
 分步 pipeline：
 
 - `POST /pipeline/screen`
 - `POST /pipeline/drafts`
-- `POST /pipeline/run`，保留为开发 smoke 和旧式一键 pipeline 入口
+- `POST /pipeline/publish-drafts`
+- `POST /pipeline/run`：保留为开发 smoke 和旧式一键 pipeline 入口。
 
 运行记录：
 
-- `GET /runs`
+- `GET /runs`：返回 runs 和 `runsDir`。
 - `DELETE /runs`
 - `GET /runs/:runId`
 - `DELETE /runs/:runId`
@@ -132,7 +134,7 @@ npm.cmd run cli -- run --query "AI workflow demo" --platforms review,wechat,xhs
 - `GET /items`
 - `GET /drafts`
 - `GET /review-queue`
-- `GET /artifacts?path=<workspace/runs/...>`
+- `GET /artifacts?path=<runsDir 内路径>`
 
 provider 和平台检查：
 
@@ -144,41 +146,30 @@ provider 和平台检查：
 - `GET /publishers`
 - `POST /runs/:runId/assets/:assetId/approve`
 
-真实平台草稿默认禁用；只有显式开启 real draft，并通过健康检查后才会创建草稿。正式发布保持禁用。
-
-## Web 工作台功能
-
-当前 Web 工作台是普通用户主入口，不再是 JSON 调试台。主要功能包括：
-
-- 模型接入设置和验证，支持 OpenAI-compatible provider。
-- RSSHub base URL 配置，支持 `rsshub://anthropic/research` 这类 route 地址。
-- AIHot、RSS、RSSHub 渠道库管理：添加、编辑、验证、启用/禁用、删除。
-- 筛选任务来源选择：从已保存渠道中多选本次要使用的来源，并设置候选数量。
-- 候选评审卡片：标题、来源、评分、入选理由、原文链接、原文状态、中文总结和风险提示。
-- 人工勾选候选后再生成 review、微信公众号、小红书草稿。
-- 草稿预览、图片计划、Markdown 产物和 publisher handoff 查看。
-- “需要处理的问题”：只展示异常、缺失原文、图片待审批和平台 gate 阻塞。
-- 运行历史查看、恢复、单条删除、清空全部、events、artifacts 和折叠调试 JSON。
+真实平台草稿默认禁用；只有显式开启 real draft，并通过健康检查后才会创建草稿。正式发布仍保持禁用。
 
 ## 可选真实 provider
 
-默认 pipeline 保持确定性，适合本地测试。只有在本地工具和凭证准备好后，才启用真实 provider。
+### HTTP 原文获取
 
-### BrowserAct 原文获取
+HTTP 原文 provider 默认启用。入选候选有 HTTP URL 时，会尝试抓取 HTML/Markdown/plain text，抽取正文并写入：
+
+```text
+<runsDir>/<runId>/full-text/
+```
+
+### BrowserAct fallback
 
 ```powershell
 $env:TRENDFORGE_ENABLE_BROWSERACT = "1"
 $env:TRENDFORGE_BROWSERACT_COMMAND = "browser-act"
-npm.cmd run cli -- run --run-id browseract-demo --query-file tests/fixtures/rss/ai-workflow.xml --top-n 1
 ```
 
-启用后，入选 HTTP source item 会执行类似命令：
+启用后，HTTP 原文抓取失败时可以由 BrowserAct provider 继续尝试：
 
 ```text
 browser-act stealth-extract <url> --content-type markdown
 ```
-
-成功时 `VerifiedArticle.fullText` 会被填充，`fullTextArtifactPath` 指向 `workspace/runs/<runId>/full-text/` 下的 Markdown 文件；失败时会记录 BrowserAct 错误信息和 planned command。
 
 ### OpenAI-compatible text provider
 
@@ -187,27 +178,21 @@ $env:TRENDFORGE_TEXT_PROVIDER = "openai-compatible"
 $env:TRENDFORGE_MODEL_BASE_URL = "https://api.deepseek.com"
 $env:TRENDFORGE_MODEL_API_KEY = "<api-key>"
 $env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
-npm.cmd run cli -- run --run-id model-demo --query-file tests/fixtures/aihot/aihot-skill.json --top-n 1
 ```
 
-provider 调用 `/chat/completions`，并期望模型返回包含 `title`、`summary`、`angle`、`keyPoints` 和 `riskNotes` 的 JSON 内容。
+provider 调用 `/chat/completions`，并期望模型返回包含 `title`、`translatedOriginal`、`summary`、`angle`、`keyPoints` 和 `riskNotes` 的 JSON。
 
-### 真实端到端 smoke
+### 图片 provider
 
-凭证只通过当前进程环境变量传入，不写入仓库文件：
+图片 provider 与文本 provider 分离。可在 Web 工作台“配置”区保存图片生成模型；配置文件位于 `workspace/config/image-model.json`，和其他本地凭证一样不会提交到仓库。当前默认不配置图片 provider，因此不会生成图片资产或图片审批队列。
 
-```powershell
-$env:TRENDFORGE_ENABLE_BROWSERACT = "1"
-$env:TRENDFORGE_BROWSERACT_COMMAND = "browser-act"
-$env:TRENDFORGE_TEXT_PROVIDER = "openai-compatible"
-$env:TRENDFORGE_MODEL_BASE_URL = "https://api.deepseek.com"
-$env:TRENDFORGE_MODEL_API_KEY = "<api-key>"
-$env:TRENDFORGE_MODEL_NAME = "deepseek-v4-flash"
-npm.cmd run cli -- run --run-id real-e2e-smoke --query "https://openai.com/news/rss.xml" --platforms review,wechat,xhs --top-n 1
-```
+后续接入图片 provider 时，应保持以下默认平台规格：
 
-运行后，Review、微信公众号和小红书 Markdown 草稿会写入 `workspace/runs/<run-id>/drafts/`；原文证据会写入 `workspace/runs/<run-id>/full-text/` 和对应 run events。
+- 微信公众号：16:9 封面图。
+- 小红书：3:4 图文图。
 
-## 完整流程
+微信公众号真实上传使用微信官方 API 链路：`GET /cgi-bin/token` 获取 access token，`POST /cgi-bin/material/add_material` 上传封面永久素材，`POST /cgi-bin/media/uploadimg` 转存正文图片，最后 `POST /cgi-bin/draft/add` 创建草稿。TrendForge 可直接保存 AppID/AppSecret，也兼容 legacy 凭据脚本读取方式；只保存 AppID 时，联通与上传 gate 会保持 blocked。
 
-完整操作说明见 [完整使用流程](usage-flow.md)，其中包括 Web 工作台、RSSHub 配置、候选筛选、人工选择、草稿生成、source health、需要处理的问题、asset approval 和微信/小红书草稿 gate。
+## 安全提醒
+
+不要提交 API key、app secret、cookie、token、浏览器 profile、账号截图或真实平台会话文件。`workspace/config/*` 已忽略提交，API 响应只返回 masked secret preview。

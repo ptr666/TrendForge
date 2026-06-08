@@ -9,11 +9,21 @@ export interface ModelConfig {
   apiKey?: string;
 }
 
+export interface ImageModelConfig {
+  enabled: boolean;
+  provider: "none" | "openai-compatible";
+  baseUrl: string;
+  model: string;
+  apiKey?: string;
+}
+
 export interface WechatConfig {
   enabled: boolean;
   appId: string;
   appSecret?: string;
   coverMediaId?: string;
+  coverImagePath?: string;
+  legacyCredentialSource?: string;
 }
 
 export interface XhsConfig {
@@ -35,12 +45,23 @@ export interface PublicModelConfig {
   keyPreview?: string;
 }
 
+export interface PublicImageModelConfig {
+  enabled: boolean;
+  provider: ImageModelConfig["provider"];
+  baseUrl: string;
+  model: string;
+  keyConfigured: boolean;
+  keyPreview?: string;
+}
+
 export interface PublicWechatConfig {
   enabled: boolean;
   appId: string;
   secretConfigured: boolean;
   secretPreview?: string;
   coverMediaId?: string;
+  coverImagePath?: string;
+  legacyCredentialSource?: string;
 }
 
 export interface PublicXhsConfig {
@@ -59,6 +80,13 @@ export const defaultModelConfig: ModelConfig = {
   provider: "deterministic",
   baseUrl: "https://api.deepseek.com",
   model: "deepseek-v4-flash"
+};
+
+export const defaultImageModelConfig: ImageModelConfig = {
+  enabled: false,
+  provider: "none",
+  baseUrl: "https://api.openai.com/v1",
+  model: "gpt-image-1"
 };
 
 export const defaultWechatConfig: WechatConfig = {
@@ -91,6 +119,10 @@ function modelConfigPath(configDir = defaultConfigDir()): string {
   return path.join(configDir, "model.json");
 }
 
+function imageModelConfigPath(configDir = defaultConfigDir()): string {
+  return path.join(configDir, "image-model.json");
+}
+
 function wechatConfigPath(configDir = defaultConfigDir()): string {
   return path.join(configDir, "wechat.json");
 }
@@ -115,14 +147,71 @@ function normalizeModelConfig(value: unknown): ModelConfig {
   };
 }
 
-function normalizeWechatConfig(value: unknown): WechatConfig {
-  const candidate = value && typeof value === "object" ? value as Partial<WechatConfig> : {};
+function normalizeImageModelConfig(value: unknown): ImageModelConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<ImageModelConfig> : {};
+  const provider = candidate.provider === "openai-compatible" ? "openai-compatible" : "none";
   return {
     enabled: candidate.enabled === true,
-    appId: typeof candidate.appId === "string" ? candidate.appId.trim() : "",
-    appSecret: typeof candidate.appSecret === "string" && candidate.appSecret.trim() ? candidate.appSecret.trim() : undefined,
-    coverMediaId: typeof candidate.coverMediaId === "string" && candidate.coverMediaId.trim() ? candidate.coverMediaId.trim() : undefined
+    provider,
+    baseUrl: typeof candidate.baseUrl === "string" && candidate.baseUrl.trim() ? candidate.baseUrl.trim() : defaultImageModelConfig.baseUrl,
+    model: typeof candidate.model === "string" && candidate.model.trim() ? candidate.model.trim() : defaultImageModelConfig.model,
+    apiKey: typeof candidate.apiKey === "string" && candidate.apiKey.trim() ? candidate.apiKey.trim() : undefined
   };
+}
+
+function normalizeWechatConfig(value: unknown): WechatConfig {
+  const candidate = value && typeof value === "object" ? value as Partial<WechatConfig> : {};
+  const lowercaseCandidate = candidate as Partial<WechatConfig> & {
+    appid?: string;
+    appsecret?: string;
+    cover?: { imagePath?: string };
+  };
+  const appId = candidate.appId ?? lowercaseCandidate.appid;
+  const appSecret = candidate.appSecret ?? lowercaseCandidate.appsecret;
+  const coverImagePath = candidate.coverImagePath ?? lowercaseCandidate.cover?.imagePath;
+  return {
+    enabled: candidate.enabled === true,
+    appId: typeof appId === "string" ? appId.trim() : "",
+    appSecret: typeof appSecret === "string" && appSecret.trim() ? appSecret.trim() : undefined,
+    coverMediaId: typeof candidate.coverMediaId === "string" && candidate.coverMediaId.trim() ? candidate.coverMediaId.trim() : undefined,
+    coverImagePath: typeof coverImagePath === "string" && coverImagePath.trim() ? coverImagePath.trim() : undefined,
+    legacyCredentialSource: typeof candidate.legacyCredentialSource === "string" && candidate.legacyCredentialSource.trim()
+      ? candidate.legacyCredentialSource.trim()
+      : undefined
+  };
+}
+
+async function readWechatLegacyCredentials(source: string): Promise<Pick<WechatConfig, "appId" | "appSecret">> {
+  const script = await readFile(path.resolve(source), "utf8");
+  const appIdMatch = script.match(/const\s+APPID\s*=\s*['"]([^'"]+)['"]/);
+  const appSecretMatch = script.match(/const\s+APPSECRET\s*=\s*['"]([^'"]+)['"]/);
+  return {
+    appId: appIdMatch?.[1]?.trim() ?? "",
+    appSecret: appSecretMatch?.[1]?.trim()
+  };
+}
+
+async function resolveWechatCredentials(config: WechatConfig): Promise<WechatConfig> {
+  const envAppId = process.env.WECHAT_APPID?.trim();
+  const envAppSecret = process.env.WECHAT_APPSECRET?.trim();
+  const withEnv = {
+    ...config,
+    appId: envAppId || config.appId,
+    appSecret: envAppSecret || config.appSecret
+  };
+  if ((!withEnv.appId || !withEnv.appSecret) && withEnv.legacyCredentialSource) {
+    try {
+      const legacy = await readWechatLegacyCredentials(withEnv.legacyCredentialSource);
+      return {
+        ...withEnv,
+        appId: withEnv.appId || legacy.appId,
+        appSecret: withEnv.appSecret || legacy.appSecret
+      };
+    } catch {
+      return withEnv;
+    }
+  }
+  return withEnv;
 }
 
 function normalizeXhsConfig(value: unknown): XhsConfig {
@@ -154,13 +243,26 @@ export function toPublicModelConfig(config: ModelConfig): PublicModelConfig {
   };
 }
 
+export function toPublicImageModelConfig(config: ImageModelConfig): PublicImageModelConfig {
+  return {
+    enabled: config.enabled,
+    provider: config.provider,
+    baseUrl: config.baseUrl,
+    model: config.model,
+    keyConfigured: Boolean(config.apiKey),
+    keyPreview: maskSecret(config.apiKey)
+  };
+}
+
 export function toPublicWechatConfig(config: WechatConfig): PublicWechatConfig {
   return {
     enabled: config.enabled,
     appId: config.appId,
     secretConfigured: Boolean(config.appSecret),
     secretPreview: maskSecret(config.appSecret),
-    coverMediaId: config.coverMediaId
+    coverMediaId: config.coverMediaId,
+    coverImagePath: config.coverImagePath,
+    legacyCredentialSource: config.legacyCredentialSource
   };
 }
 
@@ -187,6 +289,14 @@ export async function readModelConfig(configDir?: string): Promise<ModelConfig> 
   }
 }
 
+export async function readImageModelConfig(configDir?: string): Promise<ImageModelConfig> {
+  try {
+    return normalizeImageModelConfig(JSON.parse(await readFile(imageModelConfigPath(configDir), "utf8")) as unknown);
+  } catch {
+    return defaultImageModelConfig;
+  }
+}
+
 export async function writeModelConfig(config: ModelConfig, configDir?: string): Promise<ModelConfig> {
   const normalized = normalizeModelConfig(config);
   // Local provider credentials are intentionally stored outside tracked source files.
@@ -195,11 +305,19 @@ export async function writeModelConfig(config: ModelConfig, configDir?: string):
   return normalized;
 }
 
+export async function writeImageModelConfig(config: ImageModelConfig, configDir?: string): Promise<ImageModelConfig> {
+  const normalized = normalizeImageModelConfig(config);
+  // Image provider credentials are intentionally stored outside tracked source files.
+  await mkdir(path.dirname(imageModelConfigPath(configDir)), { recursive: true });
+  await writeFile(imageModelConfigPath(configDir), JSON.stringify(normalized, null, 2), "utf8");
+  return normalized;
+}
+
 export async function readWechatConfig(configDir?: string): Promise<WechatConfig> {
   try {
-    return normalizeWechatConfig(JSON.parse(await readFile(wechatConfigPath(configDir), "utf8")) as unknown);
+    return resolveWechatCredentials(normalizeWechatConfig(JSON.parse(await readFile(wechatConfigPath(configDir), "utf8")) as unknown));
   } catch {
-    return defaultWechatConfig;
+    return resolveWechatCredentials(defaultWechatConfig);
   }
 }
 

@@ -5,14 +5,17 @@ import { createDefaultPipeline } from "../../../packages/core/src/pipeline.js";
 import { buildReviewQueue } from "../../../packages/core/src/review-queue.js";
 import { aiHotDefaults, defaultCollectorOrder, defaultFullTextAcquisitionOrder, mediaCrawlerDefaults } from "../../../packages/config/src/index.js";
 import {
+  readImageModelConfig,
   readModelConfig,
   readRssHubConfig,
   readWechatConfig,
   readXhsConfig,
+  toPublicImageModelConfig,
   toPublicModelConfig,
   toPublicRssHubConfig,
   toPublicWechatConfig,
   toPublicXhsConfig,
+  writeImageModelConfig,
   writeModelConfig,
   writeRssHubConfig,
   writeWechatConfig,
@@ -47,6 +50,10 @@ async function createRuntimePublishers() {
     ? createWechatOfficialPublisher(wechatConfig)
     : publisher.platform === "xhs" ? createXhsBrowserPublisher(xhsConfig)
     : publisher);
+}
+
+async function createPipelineDeps() {
+  return createRuntimeProviders(process.env, await readModelConfig(), await readImageModelConfig());
 }
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
@@ -114,10 +121,8 @@ async function exists(targetPath: string): Promise<boolean> {
 }
 
 function workspaceRunPath(rawPath: string): string | undefined {
-  const normalized = rawPath.replace(/\\/g, "/");
-  if (!normalized.startsWith("workspace/runs/")) return undefined;
-  const resolved = path.resolve(normalized);
-  const runsRoot = path.resolve("workspace", "runs");
+  const resolved = path.resolve(rawPath);
+  const runsRoot = path.resolve(store.rootDir);
   return resolved.startsWith(runsRoot + path.sep) ? resolved : undefined;
 }
 
@@ -132,15 +137,17 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (req.method === "GET" && req.url === "/health") {
-    send(res, 200, { ok: true, service: "trendforge-api" });
+    send(res, 200, { ok: true, service: "trendforge-api", runsDir: store.rootDir });
     return;
   }
 
   if (req.method === "GET" && req.url === "/providers") {
     const modelConfig = await readModelConfig();
+    const imageModelConfig = await readImageModelConfig();
     send(res, 200, {
       ...providerState(),
       localModel: toPublicModelConfig(modelConfig),
+      imageModel: toPublicImageModelConfig(imageModelConfig),
       wechat: toPublicWechatConfig(await readWechatConfig()),
       xhs: toPublicXhsConfig(await readXhsConfig())
     });
@@ -149,6 +156,11 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === "GET" && req.url === "/config/model") {
     send(res, 200, toPublicModelConfig(await readModelConfig()));
+    return;
+  }
+
+  if (req.method === "GET" && req.url === "/config/image-model") {
+    send(res, 200, toPublicImageModelConfig(await readImageModelConfig()));
     return;
   }
 
@@ -183,6 +195,23 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     return;
   }
 
+  if (req.method === "PUT" && req.url === "/config/image-model") {
+    const body = await readJsonBody(req);
+    const existing = await readImageModelConfig();
+    const apiKey = typeof body.apiKey === "string" && body.apiKey.trim()
+      ? body.apiKey.trim()
+      : body.keepExistingKey === true ? existing.apiKey : undefined;
+    const saved = await writeImageModelConfig({
+      enabled: body.enabled === true,
+      provider: body.provider === "openai-compatible" ? "openai-compatible" : "none",
+      baseUrl: typeof body.baseUrl === "string" ? body.baseUrl : existing.baseUrl,
+      model: typeof body.model === "string" ? body.model : existing.model,
+      apiKey
+    });
+    send(res, 200, toPublicImageModelConfig(saved));
+    return;
+  }
+
   if (req.method === "GET" && req.url === "/config/wechat") {
     send(res, 200, toPublicWechatConfig(await readWechatConfig()));
     return;
@@ -198,7 +227,9 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
       enabled: body.enabled === true,
       appId: typeof body.appId === "string" ? body.appId : existing.appId,
       appSecret,
-      coverMediaId: typeof body.coverMediaId === "string" ? body.coverMediaId : existing.coverMediaId
+      coverMediaId: typeof body.coverMediaId === "string" ? body.coverMediaId : existing.coverMediaId,
+      coverImagePath: typeof body.coverImagePath === "string" ? body.coverImagePath : existing.coverImagePath,
+      legacyCredentialSource: typeof body.legacyCredentialSource === "string" ? body.legacyCredentialSource : existing.legacyCredentialSource
     });
     send(res, 200, toPublicWechatConfig(saved));
     return;
@@ -429,7 +460,7 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await readJsonBody(req);
     const pipeline = createDefaultPipeline({
       store,
-      ...createRuntimeProviders(process.env, await readModelConfig()),
+      ...await createPipelineDeps(),
       publishers: await createRuntimePublishers()
     });
     const requestedPlatforms = Array.isArray(body.requestedPlatforms)
@@ -459,17 +490,26 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     ];
     const pipeline = createDefaultPipeline({
       store,
-      ...createRuntimeProviders(process.env, await readModelConfig()),
+      ...await createPipelineDeps(),
       publishers: await createRuntimePublishers()
     });
-    const result = await pipeline.screen({
+    const request = {
       runId: typeof body.runId === "string" ? body.runId : `screen-${Date.now()}`,
       sources: selectedSources,
       candidateCount: typeof body.candidateCount === "number" ? body.candidateCount : 3,
       sourceItemIds: Array.isArray(body.sourceItemIds) ? body.sourceItemIds.map(String) : undefined,
       allowBrowserFallback: body.allowBrowserFallback !== false,
       allowMediaCrawlerFallback: body.allowMediaCrawlerFallback === true
-    });
+    };
+    if (body.async === true) {
+      void pipeline.screen(request).catch(async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.appendEvent(request.runId, { stage: "finished", status: "failed", message });
+      });
+      send(res, 202, { ok: true, runId: request.runId, status: "accepted" });
+      return;
+    }
+    const result = await pipeline.screen(request);
     send(res, 200, result);
     return;
   }
@@ -478,25 +518,64 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     const body = await readJsonBody(req);
     const pipeline = createDefaultPipeline({
       store,
-      ...createRuntimeProviders(process.env, await readModelConfig()),
+      ...await createPipelineDeps(),
       publishers: await createRuntimePublishers()
     });
     const requestedPlatforms = Array.isArray(body.requestedPlatforms)
       ? body.requestedPlatforms.filter((platform): platform is Platform => ["review", "wechat", "xhs"].includes(String(platform)))
       : ["review", "wechat", "xhs"] satisfies Platform[];
-    const result = await pipeline.generateDrafts({
+    const request = {
       runId: typeof body.runId === "string" ? body.runId : "",
       sourceItemIds: Array.isArray(body.sourceItemIds) ? body.sourceItemIds.map(String) : [],
       requestedPlatforms,
       allowRealDraft: body.allowRealDraft === true,
       dryRunPublish: body.dryRunPublish !== false
+    };
+    if (body.async === true) {
+      void pipeline.generateDrafts(request).catch(async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.appendEvent(request.runId, { stage: "finished", status: "failed", message });
+      });
+      send(res, 202, { ok: true, runId: request.runId, status: "accepted" });
+      return;
+    }
+    const result = await pipeline.generateDrafts(request);
+    send(res, 200, result);
+    return;
+  }
+
+  if (req.method === "POST" && req.url === "/pipeline/publish-drafts") {
+    const body = await readJsonBody(req);
+    const pipeline = createDefaultPipeline({
+      store,
+      ...await createPipelineDeps(),
+      publishers: await createRuntimePublishers()
     });
+    const requestedPlatforms = Array.isArray(body.requestedPlatforms)
+      ? body.requestedPlatforms.filter((platform): platform is Platform => ["wechat", "xhs"].includes(String(platform)))
+      : ["wechat", "xhs"] satisfies Platform[];
+    const request = {
+      runId: typeof body.runId === "string" ? body.runId : "",
+      draftIds: Array.isArray(body.draftIds) ? body.draftIds.map(String) : undefined,
+      sourceItemIds: Array.isArray(body.sourceItemIds) ? body.sourceItemIds.map(String) : undefined,
+      requestedPlatforms,
+      allowRealDraft: body.allowRealDraft === true
+    };
+    if (body.async === true) {
+      void pipeline.publishDrafts(request).catch(async (error) => {
+        const message = error instanceof Error ? error.message : String(error);
+        await store.appendEvent(request.runId, { stage: "finished", status: "failed", message });
+      });
+      send(res, 202, { ok: true, runId: request.runId, status: "accepted" });
+      return;
+    }
+    const result = await pipeline.publishDrafts(request);
     send(res, 200, result);
     return;
   }
 
   if (req.method === "GET" && req.url === "/runs") {
-    send(res, 200, { runs: await store.listRuns() });
+    send(res, 200, { runs: await store.listRuns(), runsDir: store.rootDir });
     return;
   }
 

@@ -19,8 +19,8 @@ description: 在新增或修改 TrendForge adapter 契约前使用，覆盖 sour
 
 当前发布工作流事实：
 
-- 微信公众号发布入口是 `wechat-official-account-shareable/skills/wechat-official-account-workflow/SKILL.md`，它管理本地 Node 工作流：article brief、Markdown、preview、check、AI/本地封面策略、官方 API 图片上传、草稿创建和发布状态。
-- 小红书发布入口是 `xhs-browser-draft-setup-package/xhs-browser-draft-setup/SKILL.md`，这是围绕 `autoclaw-cc/xiaohongshu-skills`、Hermes、browser bridge、Chrome extension、login checks、page fill、draft save 和可选 publish commands 的 share-safe setup/troubleshooting skill。
+- 微信公众号发布入口使用微信官方 API，覆盖 article brief、Markdown、preview、check、本地封面策略、官方 API 图片上传、草稿创建和发布状态。
+- 小红书发布入口围绕 `autoclaw-cc/xiaohongshu-skills`、Hermes、browser bridge、Chrome extension、login checks、page fill、draft save 和可选 publish commands 建立 gate 与 handoff。
 
 当前来源工作流事实：
 

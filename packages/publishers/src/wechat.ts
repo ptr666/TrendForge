@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PlatformDraft, PublishResult } from "../../core/src/types.js";
 import type { WechatConfig } from "../../config/src/local-config.js";
@@ -16,6 +16,15 @@ export interface WechatDraftResult {
   ok: boolean;
   status: number;
   mediaId?: string;
+  errcode?: unknown;
+  errmsg?: unknown;
+}
+
+export interface WechatUploadResult {
+  ok: boolean;
+  status: number;
+  mediaId?: string;
+  url?: string;
   errcode?: unknown;
   errmsg?: unknown;
 }
@@ -134,6 +143,100 @@ function wechatArticleFromDraft(draft: PlatformDraft, coverMediaId: string) {
   };
 }
 
+function detectMimeType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "application/octet-stream";
+}
+
+async function fileFromPath(filePath: string): Promise<{ bytes: Buffer; filename: string; mimeType: string }> {
+  const resolved = path.resolve(filePath);
+  return {
+    bytes: await readFile(resolved),
+    filename: path.basename(resolved),
+    mimeType: detectMimeType(resolved)
+  };
+}
+
+async function remoteFileFromUrl(url: string, fetchImpl: typeof fetch): Promise<{ bytes: Buffer; filename: string; mimeType: string }> {
+  const response = await fetchImpl(url);
+  if (!response.ok) throw new Error(`Remote image download failed: ${response.status} ${response.statusText}`);
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const pathname = new URL(url).pathname;
+  return {
+    bytes,
+    filename: path.basename(pathname) || `remote-${Date.now()}`,
+    mimeType: response.headers.get("content-type")?.split(";")[0]?.trim() || "application/octet-stream"
+  };
+}
+
+async function requestWechatMediaUpload(
+  accessToken: string,
+  apiPath: string,
+  file: { bytes: Buffer; filename: string; mimeType: string },
+  fetchImpl: typeof fetch
+): Promise<WechatUploadResult> {
+  const url = new URL(`https://api.weixin.qq.com${apiPath}`);
+  url.searchParams.set("access_token", accessToken);
+  const form = new FormData();
+  const bodyBytes = new Uint8Array(file.bytes);
+  form.append("media", new Blob([bodyBytes.buffer], { type: file.mimeType }), file.filename);
+  const response = await fetchImpl(url, { method: "POST", body: form });
+  const payload = await response.json() as Record<string, unknown>;
+  return {
+    ok: response.ok && (typeof payload.media_id === "string" || typeof payload.url === "string"),
+    status: response.status,
+    mediaId: typeof payload.media_id === "string" ? payload.media_id : undefined,
+    url: typeof payload.url === "string" ? payload.url : undefined,
+    errcode: payload.errcode,
+    errmsg: payload.errmsg
+  };
+}
+
+async function uploadCoverMediaId(config: WechatConfig, accessToken: string, fetchImpl: typeof fetch): Promise<string | undefined> {
+  if (config.coverMediaId) return config.coverMediaId;
+  if (!config.coverImagePath) return undefined;
+  const file = await fileFromPath(config.coverImagePath);
+  const uploaded = await requestWechatMediaUpload(accessToken, "/cgi-bin/material/add_material", file, fetchImpl);
+  if (!uploaded.mediaId) {
+    throw new Error(`WeChat cover upload failed: ${uploaded.errmsg ?? uploaded.errcode ?? uploaded.status}`);
+  }
+  return uploaded.mediaId;
+}
+
+async function uploadArticleImage(accessToken: string, src: string, fetchImpl: typeof fetch): Promise<string> {
+  const file = /^https?:\/\//i.test(src)
+    ? await remoteFileFromUrl(src, fetchImpl)
+    : await fileFromPath(src);
+  const uploaded = await requestWechatMediaUpload(accessToken, "/cgi-bin/media/uploadimg", file, fetchImpl);
+  if (!uploaded.url) {
+    throw new Error(`WeChat article image upload failed: ${uploaded.errmsg ?? uploaded.errcode ?? uploaded.status}`);
+  }
+  return uploaded.url;
+}
+
+async function replaceArticleImages(accessToken: string, html: string, fetchImpl: typeof fetch): Promise<{ html: string; uploadedImages: Array<{ source: string; url: string }> }> {
+  const seen = new Map<string, string>();
+  const matches = [...html.matchAll(/<img\b[^>]*src=["']([^"']+)["'][^>]*>/gi)];
+  let nextHtml = html;
+  const uploadedImages = [];
+  for (const match of matches) {
+    const source = match[1];
+    if (!source || /^data:/i.test(source)) continue;
+    let uploadedUrl = seen.get(source);
+    if (!uploadedUrl) {
+      uploadedUrl = await uploadArticleImage(accessToken, source, fetchImpl);
+      seen.set(source, uploadedUrl);
+      uploadedImages.push({ source, url: uploadedUrl });
+    }
+    nextHtml = nextHtml.replaceAll(`src="${source}"`, `src="${uploadedUrl}"`).replaceAll(`src='${source}'`, `src="${uploadedUrl}"`);
+  }
+  return { html: nextHtml, uploadedImages };
+}
+
 export async function requestWechatDraftAdd(
   accessToken: string,
   draft: PlatformDraft,
@@ -142,11 +245,13 @@ export async function requestWechatDraftAdd(
 ): Promise<WechatDraftResult> {
   const url = new URL("https://api.weixin.qq.com/cgi-bin/draft/add");
   url.searchParams.set("access_token", accessToken);
+  const articleImageResult = await replaceArticleImages(accessToken, draft.body, fetchImpl);
+  const draftWithUploadedImages = { ...draft, body: articleImageResult.html };
 
   const response = await fetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify(wechatArticleFromDraft(draft, coverMediaId))
+    body: JSON.stringify(wechatArticleFromDraft(draftWithUploadedImages, coverMediaId))
   });
   const payload = await response.json() as Record<string, unknown>;
   return {
@@ -186,11 +291,11 @@ export async function checkWechatDraftGate(
       token
     };
   }
-  if (!config.coverMediaId) {
+  if (!config.coverMediaId && !config.coverImagePath) {
     return {
       ok: false,
       status: "blocked",
-      message: "WeChat token check passed, but coverMediaId is required before official draft creation.",
+      message: "WeChat token check passed, but coverMediaId or coverImagePath is required before official draft creation.",
       token
     };
   }
@@ -198,7 +303,7 @@ export async function checkWechatDraftGate(
   return {
     ok: true,
     status: "ready",
-    message: "WeChat credentials, token check, and cover media id are ready for official draft creation.",
+    message: `WeChat credentials, token check, and ${config.coverMediaId ? "cover media id" : "cover image upload"} are ready for official draft creation.`,
     token
   };
 }
@@ -265,7 +370,22 @@ export function createWechatOfficialPublisher(
         };
       }
 
-      const created = await requestWechatDraftAdd(token.token, draft, config.coverMediaId ?? "", fetchImpl);
+      let coverMediaId = "";
+      try {
+        coverMediaId = await uploadCoverMediaId(config, token.token, fetchImpl) ?? "";
+      } catch (error) {
+        return {
+          draftId: draft.id,
+          platform: "wechat",
+          status: "failed",
+          artifactPath,
+          message: error instanceof Error ? error.message : String(error),
+          verificationSignal: "WeChat cover image must upload through /cgi-bin/material/add_material and return media_id.",
+          plannedCommands
+        };
+      }
+
+      const created = await requestWechatDraftAdd(token.token, draft, coverMediaId, fetchImpl);
       if (!created.ok) {
         return {
           draftId: draft.id,

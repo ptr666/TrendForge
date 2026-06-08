@@ -1,9 +1,9 @@
-import { createDefaultImageProvider } from "../../providers/src/index.js";
 import type { ImageProvider, MediaAsset, MediaComposer, PlatformDraft } from "../../core/src/types.js";
 
-export function createDefaultMediaComposer(imageProvider: ImageProvider = createDefaultImageProvider()): MediaComposer {
+export function createDefaultMediaComposer(imageProvider?: ImageProvider): MediaComposer {
   return {
     async planAssets(draft: PlatformDraft): Promise<MediaAsset[]> {
+      if (!imageProvider) return [];
       if (draft.platform === "wechat") {
         return [{
           id: `cover-${draft.id}`,
@@ -32,6 +32,10 @@ export function createDefaultMediaComposer(imageProvider: ImageProvider = create
       return assets;
     },
     async attachAssets(draft: PlatformDraft, assets: MediaAsset[]): Promise<PlatformDraft> {
+      if (!imageProvider || assets.length === 0) {
+        draft.assetIds = [];
+        return draft;
+      }
       const generated = [];
       for (const asset of assets) {
         const planned = await imageProvider.planPrompt(draft, asset);

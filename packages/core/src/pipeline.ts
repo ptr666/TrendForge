@@ -3,7 +3,7 @@ import path from "node:path";
 import { createDefaultDraftGenerator } from "../../generator/src/index.js";
 import { createDefaultMediaComposer } from "../../media/src/index.js";
 import { createPlannedPublishers } from "../../publishers/src/index.js";
-import { createDefaultTextProvider } from "../../providers/src/index.js";
+import { createDefaultTextProvider, createHttpFullTextProvider } from "../../providers/src/index.js";
 import { createDefaultSelector } from "../../selector/src/index.js";
 import { createDefaultSourceAdapters } from "../../sources/src/adapters.js";
 import { createDefaultVerifier } from "../../verifier/src/index.js";
@@ -12,6 +12,7 @@ import type {
   CandidateReview,
   CandidateSelection,
   PipelineDraftRequest,
+  PipelinePublishRequest,
   PipelineRunRequest,
   PipelineRunResult,
   PipelineScreenRequest,
@@ -22,9 +23,11 @@ import type {
   SourceAdapter,
   VerifiedArticle,
   FullTextProvider,
+  MediaComposer,
   PublisherAdapter,
   TextProvider,
-  Selector
+  Selector,
+  TrendForgePipeline
 } from "./types.js";
 
 export interface PipelineDeps {
@@ -38,35 +41,23 @@ export interface PipelineDeps {
   fullTextHandoffDir?: string;
   draftArtifactDir?: string;
   fullTextArtifactDir?: string;
+  mediaComposer?: MediaComposer;
 }
 
-function createPlannedFullTextProvider(): FullTextProvider {
-  return {
-    async acquire(item, article) {
-      return {
-        ...article,
-        failureReason: item.url.startsWith("http://") || item.url.startsWith("https://")
-          ? "Original text acquisition planned for BrowserAct."
-          : article.failureReason
-      };
-    }
-  };
+function defaultHandoffDir(runId: string, baseDir?: string, runsRoot?: string): string {
+  return baseDir ?? path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "publisher-handoffs");
 }
 
-function defaultHandoffDir(runId: string, baseDir?: string): string {
-  return baseDir ?? `workspace/runs/${runId}/publisher-handoffs`;
+function defaultFullTextHandoffDir(runId: string, baseDir?: string, runsRoot?: string): string {
+  return baseDir ?? path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "full-text-handoffs");
 }
 
-function defaultFullTextHandoffDir(runId: string, baseDir?: string): string {
-  return baseDir ?? `workspace/runs/${runId}/full-text-handoffs`;
+function defaultDraftArtifactDir(runId: string, baseDir?: string, runsRoot?: string): string {
+  return baseDir ?? path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "drafts");
 }
 
-function defaultDraftArtifactDir(runId: string, baseDir?: string): string {
-  return baseDir ?? `workspace/runs/${runId}/drafts`;
-}
-
-function defaultFullTextArtifactDir(runId: string, baseDir?: string): string {
-  return baseDir ?? `workspace/runs/${runId}/full-text`;
+function defaultFullTextArtifactDir(runId: string, baseDir?: string, runsRoot?: string): string {
+  return baseDir ?? path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "full-text");
 }
 
 function isHttpUrl(url: string): boolean {
@@ -78,6 +69,10 @@ function canGenerateFinalDraft(item: SourceItem, article: VerifiedArticle): bool
   if (article.status === "verified" && article.fullText && article.fullText.trim().length > 0) return true;
   if (article.status === "partial" && article.fullText && article.fullText.trim().length > 0) return true;
   return !isHttpUrl(item.url) && Boolean(article.fullText?.trim());
+}
+
+function userRiskNotes(notes: string[]): string[] {
+  return notes.filter((note) => note !== "Original text acquisition planned for BrowserAct.");
 }
 
 function emptyRun(runId: string, startedAt = new Date().toISOString()): PipelineRunResult {
@@ -110,8 +105,8 @@ function dedupeSourceItems(items: SourceItem[]): SourceItem[] {
   return deduped;
 }
 
-async function writeDraftArtifact(runId: string, draft: PlatformDraft, baseDir?: string): Promise<PlatformDraft> {
-  const dir = defaultDraftArtifactDir(runId, baseDir);
+async function writeDraftArtifact(runId: string, draft: PlatformDraft, baseDir?: string, runsRoot?: string): Promise<PlatformDraft> {
+  const dir = defaultDraftArtifactDir(runId, baseDir, runsRoot);
   await mkdir(dir, { recursive: true });
   const artifactPath = path.join(dir, `${draft.platform}-${draft.sourceItemId}.md`);
   const content = [
@@ -136,9 +131,10 @@ async function writeFullTextHandoff(
   runId: string,
   item: SourceItem,
   command: string[],
-  baseDir?: string
+  baseDir?: string,
+  runsRoot?: string
 ): Promise<string> {
-  const dir = defaultFullTextHandoffDir(runId, baseDir);
+  const dir = defaultFullTextHandoffDir(runId, baseDir, runsRoot);
   await mkdir(dir, { recursive: true });
   const artifactPath = path.join(dir, `browseract-${item.id}.json`);
   await writeFile(artifactPath, JSON.stringify({
@@ -157,11 +153,12 @@ async function writeFullTextArtifact(
   runId: string,
   item: SourceItem,
   article: VerifiedArticle,
-  baseDir?: string
+  baseDir?: string,
+  runsRoot?: string
 ): Promise<VerifiedArticle> {
   if (!article.fullText?.trim()) return article;
 
-  const dir = defaultFullTextArtifactDir(runId, baseDir);
+  const dir = defaultFullTextArtifactDir(runId, baseDir, runsRoot);
   await mkdir(dir, { recursive: true });
   const artifactPath = path.join(dir, `${item.id}.md`);
   const content = [
@@ -184,14 +181,14 @@ async function writeFullTextArtifact(
   return { ...article, fullTextArtifactPath: artifactPath };
 }
 
-export function createDefaultPipeline(deps: PipelineDeps) {
+export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
   const verifier = createDefaultVerifier();
   const selector = deps.selector ?? createDefaultSelector();
   const generator = createDefaultDraftGenerator();
   const textProvider = deps.textProvider ?? createDefaultTextProvider();
-  const media = createDefaultMediaComposer();
+  const media = deps.mediaComposer ?? createDefaultMediaComposer();
   const publishers = deps.publishers ?? createPlannedPublishers();
-  const fullTextProvider = deps.fullTextProvider ?? createPlannedFullTextProvider();
+  const fullTextProvider = deps.fullTextProvider ?? createHttpFullTextProvider();
 
   async function collectFromQuery(runId: string, query: string, request: { allowBrowserFallback?: boolean; allowMediaCrawlerFallback?: boolean }, errors: Array<{ stage: string; message: string }>): Promise<SourceItem[]> {
     const sourceAdapters = deps.sourceAdapters ?? createDefaultSourceAdapters({
@@ -295,50 +292,41 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       if (!article || !item) continue;
       let currentArticle = article;
 
-      if (article.status !== "verified" && isHttpUrl(item.url) && request.allowBrowserFallback !== false) {
-        const command = ["browseract", "stealth-extract", item.url];
-        const artifactPath = await writeFullTextHandoff(runId, item, command, deps.fullTextHandoffDir);
+      if (article.status !== "verified" && isHttpUrl(item.url)) {
         await deps.store.appendEvent(runId, {
           stage: "fetch_full_text",
-          adapter: "browseract",
-          status: "planned",
+          adapter: "http",
+          status: "started",
           sourceItemId: item.id,
-          evidenceUrl: item.url,
-          command,
-          artifactPath,
-          reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
+          evidenceUrl: item.url
         });
         const acquired = await fullTextProvider.acquire(item, article);
-        const acquiredWithArtifact = await writeFullTextArtifact(runId, item, acquired, deps.fullTextArtifactDir);
+        const acquiredWithArtifact = await writeFullTextArtifact(runId, item, acquired, deps.fullTextArtifactDir, deps.store.rootDir);
         verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquiredWithArtifact);
         currentArticle = acquiredWithArtifact;
+        const browserActHandoffPath = acquiredWithArtifact.method === "browseract"
+          ? await writeFullTextHandoff(runId, item, ["browseract", "stealth-extract", item.url], deps.fullTextHandoffDir, deps.store.rootDir)
+          : undefined;
         await deps.store.appendEvent(runId, {
           stage: "fetch_full_text",
-          adapter: "browseract",
+          adapter: acquiredWithArtifact.method,
           status: acquiredWithArtifact.status,
           sourceItemId: item.id,
           evidenceUrl: acquiredWithArtifact.evidenceUrl,
-          artifactPath: acquiredWithArtifact.fullTextArtifactPath,
+          artifactPath: acquiredWithArtifact.fullTextArtifactPath ?? browserActHandoffPath,
           reason: acquiredWithArtifact.failureReason
         });
-      } else if (article.status !== "verified" && isHttpUrl(item.url) && request.allowMediaCrawlerFallback === true) {
-        await deps.store.appendEvent(runId, {
-          stage: "fetch_full_text",
-          adapter: "mediacrawler",
-          status: "planned",
-          sourceItemId: item.id,
-          evidenceUrl: item.url,
-          command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
-          reason: "BrowserAct disabled; MediaCrawler fallback requires explicit enablement and compliance review."
-        });
-      } else if (article.status !== "verified" && isHttpUrl(item.url)) {
-        await deps.store.appendEvent(runId, {
-          stage: "fetch_full_text",
-          status: "skipped",
-          sourceItemId: item.id,
-          evidenceUrl: item.url,
-          reason: "Original text acquisition requires BrowserAct or explicit MediaCrawler fallback."
-        });
+        if (acquiredWithArtifact.status === "failed" && request.allowMediaCrawlerFallback === true) {
+          await deps.store.appendEvent(runId, {
+            stage: "fetch_full_text",
+            adapter: "mediacrawler",
+            status: "planned",
+            sourceItemId: item.id,
+            evidenceUrl: item.url,
+            command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
+            reason: "HTTP 原文获取失败；MediaCrawler fallback 需要显式启用并完成合规检查。"
+          });
+        }
       }
 
       if (canGenerateFinalDraft(item, currentArticle)) {
@@ -381,7 +369,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         originalArtifactPath: article.fullTextArtifactPath,
         originalPreview: article.fullText?.slice(0, 1200),
         summary,
-        riskNotes: summary.riskNotes
+        riskNotes: userRiskNotes(summary.riskNotes)
       });
       await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
     }
@@ -395,20 +383,20 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       const summary = summaries.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
       if (!article || !summary) continue;
       if (requestedPlatforms.includes("review")) {
-        drafts.push(await writeDraftArtifact(runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir));
+        drafts.push(await writeDraftArtifact(runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
       }
       if (requestedPlatforms.includes("wechat")) {
-        drafts.push(await writeDraftArtifact(runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir));
+        drafts.push(await writeDraftArtifact(runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
       }
       if (requestedPlatforms.includes("xhs")) {
-        drafts.push(await writeDraftArtifact(runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir));
+        drafts.push(await writeDraftArtifact(runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
       }
     }
     await deps.store.appendEvent(runId, { stage: "generate", count: drafts.length });
     return drafts;
   }
 
-  async function composeAndPublish(runId: string, drafts: PlatformDraft[], request: { allowRealDraft?: boolean }) {
+  async function composeMedia(runId: string, drafts: PlatformDraft[]) {
     const assets = [];
     for (const draft of drafts) {
       const plannedAssets = await media.planAssets(draft);
@@ -417,14 +405,17 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       await media.attachAssets(draft, generatedAssets);
     }
     await deps.store.appendEvent(runId, { stage: "compose_media", count: assets.length });
+    return assets;
+  }
 
+  async function publishExistingDrafts(runId: string, drafts: PlatformDraft[], request: { allowRealDraft?: boolean }) {
     const publishResults = [];
     for (const draft of drafts) {
       const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
       if (publisher) {
         const publishResult = await publisher.publishDraft(draft, {
           allowRealDraft: request.allowRealDraft === true,
-          handoffDir: defaultHandoffDir(runId, deps.publisherHandoffDir)
+          handoffDir: defaultHandoffDir(runId, deps.publisherHandoffDir, deps.store.rootDir)
         });
         publishResults.push(publishResult);
         await deps.store.appendEvent(runId, {
@@ -438,7 +429,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         });
       }
     }
-    return { assets, publishResults };
+    return publishResults;
   }
 
   return {
@@ -493,17 +484,48 @@ export function createDefaultPipeline(deps: PipelineDeps) {
       const selectedIds = new Set(request.sourceItemIds);
       const selections = existing.selections.filter((selection) => selectedIds.has(selection.sourceItemId));
       const drafts = await generateDraftArtifacts(request.runId, existing.sourceItems, existing.verifiedArticles, existing.summaries, selections, request.requestedPlatforms);
-      const { assets, publishResults } = await composeAndPublish(request.runId, drafts, request);
+      const assets = await composeMedia(request.runId, drafts);
       const result: PipelineRunResult = {
         ...existing,
         status: existing.errors.length > 0 ? "partial" : "success",
         finishedAt: new Date().toISOString(),
         drafts,
         assets,
-        publishResults
+        publishResults: existing.publishResults ?? []
       };
       result.reviewQueue = buildReviewQueue(result);
       await deps.store.saveRun(result);
+      await deps.store.appendEvent(request.runId, { stage: "finished", status: result.status });
+      return result;
+    },
+    async publishDrafts(request: PipelinePublishRequest): Promise<PipelineRunResult> {
+      const existing = await deps.store.readRun(request.runId);
+      if (!existing) {
+        throw new Error(`Run ${request.runId} not found.`);
+      }
+      await deps.store.appendEvent(request.runId, { stage: "platform_publish", status: "started", request });
+      const draftIds = new Set(request.draftIds ?? []);
+      const sourceItemIds = new Set(request.sourceItemIds ?? []);
+      const requestedPlatforms = new Set(request.requestedPlatforms?.filter((platform) => platform !== "review") ?? ["wechat", "xhs"]);
+      const drafts = existing.drafts.filter((draft) => {
+        if (draft.platform === "review") return false;
+        if (!requestedPlatforms.has(draft.platform)) return false;
+        if (draftIds.size > 0 && !draftIds.has(draft.id)) return false;
+        if (sourceItemIds.size > 0 && !sourceItemIds.has(draft.sourceItemId)) return false;
+        return true;
+      });
+      const nextPublishResults = await publishExistingDrafts(request.runId, drafts, request);
+      const replacedKeys = new Set(nextPublishResults.map((result) => `${result.platform}:${result.draftId}`));
+      const previousPublishResults = (existing.publishResults ?? []).filter((result) => !replacedKeys.has(`${result.platform}:${result.draftId}`));
+      const result: PipelineRunResult = {
+        ...existing,
+        status: existing.errors.length > 0 ? "partial" : "success",
+        finishedAt: new Date().toISOString(),
+        publishResults: [...previousPublishResults, ...nextPublishResults]
+      };
+      result.reviewQueue = buildReviewQueue(result);
+      await deps.store.saveRun(result);
+      await deps.store.appendEvent(request.runId, { stage: "platform_publish", status: "finished", count: nextPublishResults.length });
       await deps.store.appendEvent(request.runId, { stage: "finished", status: result.status });
       return result;
     },
@@ -579,50 +601,41 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         if (!article || !item) continue;
         let currentArticle = article;
 
-        if (article.status !== "verified" && isHttpUrl(item.url) && request.allowBrowserFallback !== false) {
-          const command = ["browseract", "stealth-extract", item.url];
-          const artifactPath = await writeFullTextHandoff(request.runId, item, command, deps.fullTextHandoffDir);
+        if (article.status !== "verified" && isHttpUrl(item.url)) {
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
-            adapter: "browseract",
-            status: "planned",
+            adapter: "http",
+            status: "started",
             sourceItemId: item.id,
-            evidenceUrl: item.url,
-            command,
-            artifactPath,
-            reason: "Original text acquisition uses BrowserAct for selected HTTP source items."
+            evidenceUrl: item.url
           });
           const acquired = await fullTextProvider.acquire(item, article);
-          const acquiredWithArtifact = await writeFullTextArtifact(request.runId, item, acquired, deps.fullTextArtifactDir);
+          const acquiredWithArtifact = await writeFullTextArtifact(request.runId, item, acquired, deps.fullTextArtifactDir, deps.store.rootDir);
           verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquiredWithArtifact);
           currentArticle = acquiredWithArtifact;
+          const browserActHandoffPath = acquiredWithArtifact.method === "browseract"
+            ? await writeFullTextHandoff(request.runId, item, ["browseract", "stealth-extract", item.url], deps.fullTextHandoffDir, deps.store.rootDir)
+            : undefined;
           await deps.store.appendEvent(request.runId, {
             stage: "fetch_full_text",
-            adapter: "browseract",
+            adapter: acquiredWithArtifact.method,
             status: acquiredWithArtifact.status,
             sourceItemId: item.id,
             evidenceUrl: acquiredWithArtifact.evidenceUrl,
-            artifactPath: acquiredWithArtifact.fullTextArtifactPath,
+            artifactPath: acquiredWithArtifact.fullTextArtifactPath ?? browserActHandoffPath,
             reason: acquiredWithArtifact.failureReason
           });
-        } else if (article.status !== "verified" && isHttpUrl(item.url) && request.allowMediaCrawlerFallback === true) {
-          await deps.store.appendEvent(request.runId, {
-            stage: "fetch_full_text",
-            adapter: "mediacrawler",
-            status: "planned",
-            sourceItemId: item.id,
-            evidenceUrl: item.url,
-            command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
-            reason: "BrowserAct disabled; MediaCrawler fallback requires explicit enablement and compliance review."
-          });
-        } else if (article.status !== "verified" && isHttpUrl(item.url)) {
-          await deps.store.appendEvent(request.runId, {
-            stage: "fetch_full_text",
-            status: "skipped",
-            sourceItemId: item.id,
-            evidenceUrl: item.url,
-            reason: "Original text acquisition requires BrowserAct or explicit MediaCrawler fallback."
-          });
+          if (acquiredWithArtifact.status === "failed" && request.allowMediaCrawlerFallback === true) {
+            await deps.store.appendEvent(request.runId, {
+              stage: "fetch_full_text",
+              adapter: "mediacrawler",
+              status: "planned",
+              sourceItemId: item.id,
+              evidenceUrl: item.url,
+              command: ["uv", "run", "main.py", "--type", "detail", "--url", item.url],
+              reason: "HTTP 原文获取失败；MediaCrawler fallback 需要显式启用并完成合规检查。"
+            });
+          }
         }
 
         if (canGenerateFinalDraft(item, currentArticle)) {
@@ -653,13 +666,13 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         summaries.push(summary);
         await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
         if (request.requestedPlatforms.includes("review")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
         }
         if (request.requestedPlatforms.includes("wechat")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
         }
         if (request.requestedPlatforms.includes("xhs")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir));
+          drafts.push(await writeDraftArtifact(request.runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
         }
       }
       await deps.store.appendEvent(request.runId, { stage: "generate", count: drafts.length });
@@ -679,7 +692,7 @@ export function createDefaultPipeline(deps: PipelineDeps) {
         if (publisher) {
           const publishResult = await publisher.publishDraft(draft, {
             allowRealDraft: request.allowRealDraft === true,
-            handoffDir: defaultHandoffDir(request.runId, deps.publisherHandoffDir)
+            handoffDir: defaultHandoffDir(request.runId, deps.publisherHandoffDir, deps.store.rootDir)
           });
           publishResults.push(publishResult);
           await deps.store.appendEvent(request.runId, {
