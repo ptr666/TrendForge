@@ -82,3 +82,21 @@ test("run store writes Windows-friendly JSON for Chinese text with control chara
 
   await rm(rootDir, { recursive: true, force: true });
 });
+
+test("run store keeps event appends stable while polling events", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-runs-events-"));
+  const store = createRunStore({ rootDir });
+
+  const writers = Array.from({ length: 20 }, (_, index) => store.appendEvent("run-events", {
+    stage: "polling-test",
+    index
+  }));
+  const readers = Array.from({ length: 10 }, () => store.readEvents("run-events"));
+
+  await Promise.all([...writers, ...readers]);
+  const events = await store.readEvents("run-events");
+
+  assert.equal(events.filter((event) => event.stage === "polling-test").length, 20);
+
+  await rm(rootDir, { recursive: true, force: true });
+});

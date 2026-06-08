@@ -84,13 +84,23 @@ export interface PlatformDraft {
 export interface MediaAsset {
   id: string;
   draftId: string;
+  platform?: Platform;
   type: "cover" | "inline_image" | "xhs_image" | "preview";
+  role?: "cover" | "inline" | "platform";
+  index?: number;
+  revision?: number;
+  filename?: string;
   source: "generated" | "local" | "remote" | "placeholder";
   status?: "planned" | "needs-approval" | "approved" | "blocked";
   approvalRequired?: boolean;
   path?: string;
   prompt?: string;
+  altText?: string;
+  stylePrompt?: string;
+  previewUrl?: string;
+  errorMessage?: string;
   ratio?: string;
+  metadata?: Record<string, unknown>;
 }
 
 export interface PlannedCommand {
@@ -197,6 +207,11 @@ export interface PipelinePublishRequest {
   allowRealDraft?: boolean;
 }
 
+export interface PipelineAssetRegenerateRequest {
+  runId: string;
+  assetId: string;
+}
+
 export interface PipelineRunResult {
   runId: string;
   status: "success" | "partial" | "failed";
@@ -261,7 +276,7 @@ export interface PublisherAdapter {
   platform: Exclude<Platform, "review">;
   healthcheck(): Promise<{ ok: boolean; message?: string; [key: string]: unknown }>;
   preview(draft: PlatformDraft): Promise<{ ok: boolean; path?: string; message?: string }>;
-  publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean; handoffDir?: string }): Promise<PublishResult>;
+  publishDraft(draft: PlatformDraft, options?: { allowRealDraft?: boolean; handoffDir?: string; assets?: MediaAsset[] }): Promise<PublishResult>;
   readLastResult(): Promise<PublishResult | undefined>;
 }
 
@@ -280,5 +295,6 @@ export interface TrendForgePipeline {
   screen(request: PipelineScreenRequest): Promise<PipelineRunResult>;
   generateDrafts(request: PipelineDraftRequest): Promise<PipelineRunResult>;
   publishDrafts(request: PipelinePublishRequest): Promise<PipelineRunResult>;
+  regenerateAsset(request: PipelineAssetRegenerateRequest): Promise<PipelineRunResult>;
   run(request: PipelineRunRequest): Promise<PipelineRunResult>;
 }

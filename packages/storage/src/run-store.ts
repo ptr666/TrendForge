@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { PipelineRunResult, RunStore } from "../../core/src/types.js";
 
@@ -23,6 +23,27 @@ function sanitizeJsonValue<T>(value: T): T {
   return value;
 }
 
+function shouldRetryFileWrite(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const code = "code" in error ? String(error.code) : "";
+  return code === "EPERM" || code === "EBUSY" || code === "ENOENT";
+}
+
+async function appendFileWithRetry(filePath: string, content: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    try {
+      await appendFile(filePath, content, "utf8");
+      return;
+    } catch (error) {
+      lastError = error;
+      if (!shouldRetryFileWrite(error)) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 25 * (attempt + 1)));
+    }
+  }
+  throw lastError;
+}
+
 export function createRunStore(options: RunStoreOptions = {}): RunStore {
   const rootDir = options.rootDir ?? process.env.TRENDFORGE_RUNS_DIR ?? path.resolve("workspace", "runs");
   const resolvedRoot = path.resolve(rootDir);
@@ -44,7 +65,7 @@ export function createRunStore(options: RunStoreOptions = {}): RunStore {
     async appendEvent(runId: string, event: Record<string, unknown>): Promise<void> {
       await mkdir(rootDir, { recursive: true });
       const line = JSON.stringify(sanitizeJsonValue({ at: new Date().toISOString(), ...event })) + "\n";
-      await writeFile(path.join(rootDir, `${runId}.events.jsonl`), line, { encoding: "utf8", flag: "a" });
+      await appendFileWithRetry(path.join(rootDir, `${runId}.events.jsonl`), line);
     },
     async readRun(runId: string): Promise<PipelineRunResult | undefined> {
       try {

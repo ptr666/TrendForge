@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PlatformDraft, PlannedCommand, PublishResult } from "../../core/src/types.js";
+import type { MediaAsset, PlatformDraft, PlannedCommand, PublishResult } from "../../core/src/types.js";
 import type { XhsConfig } from "../../config/src/local-config.js";
 
 export interface XhsCommandResult {
@@ -19,7 +19,23 @@ export interface XhsDraftGate {
   bridgeUrl: string;
 }
 
-function xhsCommands(draft: PlatformDraft, bridgeUrl = "ws://localhost:9343"): PlannedCommand[] {
+function usableAssetPath(asset: MediaAsset): string | undefined {
+  if (asset.status === "blocked") return undefined;
+  if (!asset.path) return undefined;
+  return asset.path;
+}
+
+function xhsImagePaths(assets: MediaAsset[] = []): string[] {
+  return assets
+    .filter((asset) => (asset.type === "cover" || asset.type === "xhs_image") && usableAssetPath(asset))
+    .map((asset) => asset.path ?? "");
+}
+
+function xhsCommands(draft: PlatformDraft, bridgeUrl = "ws://localhost:9343", imagePaths: string[] = []): PlannedCommand[] {
+  const fillPublishCommand = ["uv", "run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id, "--bridge-url", bridgeUrl];
+  if (imagePaths.length > 0) {
+    fillPublishCommand.push("--images", ...imagePaths);
+  }
   return [
     {
       name: "xhs-check-login",
@@ -29,7 +45,7 @@ function xhsCommands(draft: PlatformDraft, bridgeUrl = "ws://localhost:9343"): P
     },
     {
       name: "xhs-fill-publish",
-      command: ["uv", "run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id, "--bridge-url", bridgeUrl],
+      command: fillPublishCommand,
       reason: "Fill title, body, tags, and image assets into the browser publish page.",
       successSignal: "page visibly contains title, body, and uploaded images"
     },
@@ -55,17 +71,29 @@ async function writeXhsHandoff(
   draft: PlatformDraft,
   config: XhsConfig,
   plannedCommands: PlannedCommand[],
+  assets: MediaAsset[] = [],
   handoffDir?: string
 ): Promise<string | undefined> {
   if (!handoffDir) return undefined;
   await mkdir(handoffDir, { recursive: true });
   const artifactPath = path.join(handoffDir, `xhs-${draft.id}.json`);
+  const imagePaths = xhsImagePaths(assets);
   await writeFile(artifactPath, JSON.stringify({
     workflow: "xhs-browser-draft-setup",
     platform: "xhs",
     projectDir: config.projectDir,
     bridgeUrl: config.bridgeUrl,
     draft,
+    imagePaths,
+    coverPath: assets.find((asset) => asset.type === "cover" && usableAssetPath(asset))?.path,
+    contentImagePaths: assets.filter((asset) => asset.type === "xhs_image" && usableAssetPath(asset)).map((asset) => asset.path),
+    imagePrompts: assets.map((asset) => ({
+      id: asset.id,
+      type: asset.type,
+      ratio: asset.ratio,
+      prompt: asset.prompt,
+      path: asset.path
+    })),
     plannedCommands,
     verificationSignal: "browser page draft-saved signal required"
   }, null, 2), "utf8");
@@ -166,10 +194,12 @@ export function createXhsBrowserPublisher(
     },
     async publishDraft(
       draft: PlatformDraft,
-      publishOptions: { allowRealDraft?: boolean; handoffDir?: string } = {}
+      publishOptions: { allowRealDraft?: boolean; handoffDir?: string; assets?: MediaAsset[] } = {}
     ): Promise<PublishResult> {
-      const plannedCommands = xhsCommands(draft, config.bridgeUrl);
-      const artifactPath = await writeXhsHandoff(draft, config, plannedCommands, publishOptions.handoffDir);
+      const assets = publishOptions.assets ?? [];
+      const imagePaths = xhsImagePaths(assets);
+      const plannedCommands = xhsCommands(draft, config.bridgeUrl, imagePaths);
+      const artifactPath = await writeXhsHandoff(draft, config, plannedCommands, assets, publishOptions.handoffDir);
 
       if (publishOptions.allowRealDraft !== true) {
         return {
@@ -199,7 +229,9 @@ export function createXhsBrowserPublisher(
       const cwd = path.resolve(config.projectDir);
       const commandRuns = [
         await runCommand("uv", ["run", "python", "scripts/cli.py", "check-login", "--bridge-url", config.bridgeUrl], { cwd }),
-        await runCommand("uv", ["run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id, "--bridge-url", config.bridgeUrl], { cwd }),
+        await runCommand("uv", imagePaths.length > 0
+          ? ["run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id, "--bridge-url", config.bridgeUrl, "--images", ...imagePaths]
+          : ["run", "python", "scripts/cli.py", "fill-publish", "--draft-id", draft.id, "--bridge-url", config.bridgeUrl], { cwd }),
         await runCommand("uv", ["run", "python", "scripts/cli.py", "save-draft", "--bridge-url", config.bridgeUrl], { cwd })
       ];
       const failed = commandRuns.find((result) => result.exitCode !== 0);

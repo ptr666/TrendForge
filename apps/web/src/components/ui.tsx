@@ -323,7 +323,7 @@ export function ArtifactViewer({
         <div className="section-title compact">
           <div>
             <p className="eyebrow">产物阅读器</p>
-            <h2>{title ?? "Markdown 产物"}</h2>
+            <h2>{title ?? "内容预览"}</h2>
             <p className="helper">{artifact.path}</p>
           </div>
           <button type="button" onClick={onClose}>关闭</button>

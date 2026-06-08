@@ -164,7 +164,7 @@ test("pipeline can use OpenAI-compatible text provider for summaries and drafts"
           })
         }
       }]
-    }), { status: 200 })
+    }), { status: 200, headers: { "content-type": "application/json" } })
   });
   const pipeline = createDefaultPipeline({ store, textProvider });
 

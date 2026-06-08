@@ -126,6 +126,14 @@ function workspaceRunPath(rawPath: string): string | undefined {
   return resolved.startsWith(runsRoot + path.sep) ? resolved : undefined;
 }
 
+function imageContentType(filePath: string): string {
+  const ext = path.extname(filePath).toLowerCase();
+  if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/png";
+}
+
 async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
   res.setHeader("content-type", "application/json; charset=utf-8");
   applyCors(res);
@@ -597,6 +605,24 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
 
   if (req.method === "GET" && req.url?.startsWith("/runs/")) {
     const runId = decodeURIComponent(req.url.slice("/runs/".length));
+    const assetFileMatch = /^([^/]+)\/assets\/([^/]+)\/file$/.exec(runId);
+    if (assetFileMatch) {
+      const realRunId = decodeURIComponent(assetFileMatch[1] ?? "");
+      const assetId = decodeURIComponent(assetFileMatch[2] ?? "");
+      const run = await store.readRun(realRunId);
+      const asset = run?.assets.find((candidate) => candidate.id === assetId);
+      const assetPath = asset?.path ? workspaceRunPath(asset.path) : undefined;
+      if (!run || !asset || !assetPath) {
+        send(res, 404, { error: "asset_not_found" });
+        return;
+      }
+      const bytes = await readFile(assetPath);
+      res.statusCode = 200;
+      res.setHeader("content-type", imageContentType(assetPath));
+      res.setHeader("cache-control", "no-store");
+      res.end(bytes);
+      return;
+    }
     if (runId.endsWith("/events")) {
       const realRunId = runId.slice(0, -"/events".length);
       send(res, 200, { runId: realRunId, events: await store.readEvents(realRunId) });
@@ -640,6 +666,20 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
     await store.saveRun(run);
     await store.appendEvent(runId, { stage: "asset_approval", assetId, status: "approved" });
     send(res, 200, { ok: true, asset, queue: run.reviewQueue });
+    return;
+  }
+
+  if (req.method === "POST" && req.url?.startsWith("/runs/") && req.url.includes("/assets/") && req.url.endsWith("/regenerate")) {
+    const match = /^\/runs\/([^/]+)\/assets\/([^/]+)\/regenerate$/.exec(req.url);
+    const runId = decodeURIComponent(match?.[1] ?? "");
+    const assetId = decodeURIComponent(match?.[2] ?? "");
+    const pipeline = createDefaultPipeline({
+      store,
+      ...await createPipelineDeps(),
+      publishers: await createRuntimePublishers()
+    });
+    const run = await pipeline.regenerateAsset({ runId, assetId });
+    send(res, 200, run);
     return;
   }
 

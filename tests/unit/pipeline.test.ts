@@ -78,10 +78,63 @@ test("pipeline only plans image assets when an image provider is configured", as
       topN: 1
     });
 
-    assert.ok(result.assets.some((asset) => asset.type === "cover" && asset.ratio === "16:9"));
-    assert.ok(result.assets.some((asset) => asset.type === "xhs_image" && asset.ratio === "3:4"));
+    assert.equal(result.assets.filter((asset) => asset.type === "cover").length, 2);
+    assert.equal(result.assets.filter((asset) => asset.type === "inline_image").length, 1);
+    assert.equal(result.assets.filter((asset) => asset.type === "xhs_image").length, 1);
+    assert.ok(result.assets.some((asset) => asset.platform === "wechat" && asset.type === "cover" && asset.ratio === "16:9"));
+    assert.ok(result.assets.some((asset) => asset.platform === "xhs" && asset.type === "cover" && asset.ratio === "3:4"));
+    assert.ok(result.assets.every((asset) => asset.id.startsWith("tf-run-image-provider-")));
+    assert.ok(result.assets.every((asset) => String(asset.metadata?.outputDir ?? "").includes(path.join(rootDir, "run-image-provider", "assets"))));
     assert.ok(result.assets.every((asset) => asset.status === "needs-approval"));
     assert.ok(result.reviewQueue?.some((item) => item.category === "asset"));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline regenerates one image asset with a new revision", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-image-regenerate-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({
+    store,
+    mediaComposer: createDefaultMediaComposer({
+      async planPrompt(_draft, asset) {
+        return {
+          ...asset,
+          source: "placeholder",
+          prompt: `revision-${asset.revision}`
+        };
+      }
+    })
+  });
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-regenerate",
+      query: JSON.stringify({
+        items: [{
+          title: "AI publishing workflow with regenerated images",
+          url: "about:blank",
+          summary: "A signal for testing image regeneration.",
+          tags: ["featured"]
+        }]
+      }),
+      requestedPlatforms: ["wechat"],
+      topN: 1
+    });
+    const target = result.assets.find((asset) => asset.type === "cover");
+    const untouched = result.assets.find((asset) => asset.type === "inline_image");
+    assert.ok(target);
+    assert.ok(untouched);
+
+    const regenerated = await pipeline.regenerateAsset({ runId: "run-regenerate", assetId: target.id });
+    const nextTarget = regenerated.assets.find((asset) => asset.id === target.id);
+    const nextUntouched = regenerated.assets.find((asset) => asset.id === untouched.id);
+
+    assert.equal(nextTarget?.revision, 2);
+    assert.equal(nextTarget?.prompt, "revision-2");
+    assert.equal(nextTarget?.filename?.endsWith("-r2"), true);
+    assert.equal(nextUntouched?.revision, untouched.revision);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -295,6 +348,103 @@ test("pipeline does not plan MediaCrawler full-text acquisition unless explicitl
 
     assert.equal(mediaCrawlerPlan, undefined);
     assert.ok(httpFailure);
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline skips one item when original text is too short and continues other candidates", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-skip-short-original-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({
+    store,
+    fullTextProvider: {
+      async acquire(item, article) {
+        if (item.title.includes("Short original")) {
+          throw new Error("抽取出的正文太短：76 字符。");
+        }
+        return article;
+      }
+    },
+    textProvider: {
+      async summarize(article, selection) {
+        if (article.status === "failed") throw new Error(article.failureReason ?? "original failed");
+        return {
+          sourceItemId: article.sourceItemId,
+          title: `总结 ${article.sourceItemId}`,
+          translatedOriginal: "中文译文",
+          summary: "中文总结",
+          angle: selection.angle ?? "角度",
+          keyPoints: ["要点"],
+          riskNotes: []
+        };
+      }
+    },
+    selector: {
+      async score(article) {
+        return {
+          sourceItemId: article.sourceItemId,
+          score: article.sourceItemId === "short-original" ? 100 : 95,
+          reason: "测试用确定性评分",
+          targetPlatforms: ["review", "wechat", "xhs"],
+          angle: "测试角度",
+          tags: ["test"]
+        };
+      },
+      selectTopN(selections, limit) {
+        return selections.slice(0, limit);
+      }
+    }
+  });
+
+  try {
+    const result = await pipeline.screen({
+      runId: "run-skip-short-original",
+      sources: [{
+        id: "manual-aihot",
+        title: "Manual AIHot",
+        type: "aihot",
+        source: JSON.stringify({
+          items: [
+            {
+              id: "short-original",
+              title: "Short original article",
+              url: "https://example.com/short",
+              summary: "This one has a short extracted original text.",
+              tags: ["featured"]
+            },
+            {
+              id: "good-original",
+              title: "Good original article",
+              url: "about:blank",
+              summary: "This one should still become a candidate.",
+              tags: ["featured"]
+            },
+            {
+              id: "backup-original",
+              title: "Backup original article",
+              url: "about:blank",
+              summary: "This one should replace the short original.",
+              tags: ["featured"]
+            }
+          ]
+        }),
+        enabled: true
+      }],
+      candidateCount: 2
+    });
+
+    const events = await store.readEvents("run-skip-short-original");
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.candidateReviews?.length, 2);
+    assert.equal(result.candidateReviews?.[0]?.title, "Good original article");
+    assert.equal(result.candidateReviews?.[1]?.title, "Backup original article");
+    assert.equal(result.errors.some((error) => /short-original/.test(error.stage) || /正文太短/.test(error.message)), true);
+    assert.ok(events.some((event) => event.stage === "select" && event.status === "skipped" && event.score === 0 && /正文太短/.test(String(event.reason))));
+    assert.equal(result.reviewQueue?.some((item) => item.category === "original-text" && item.sourceItemId === "short-original"), false);
+    assert.equal(result.reviewQueue?.some((item) => item.category === "pipeline" && item.id.includes(":pipeline:select:")), false);
+    assert.ok(events.some((event) => event.stage === "summarize" && event.status === "finished"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

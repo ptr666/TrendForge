@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { createDefaultDraftGenerator } from "../../generator/src/index.js";
-import { createDefaultMediaComposer } from "../../media/src/index.js";
+import { createDefaultMediaComposer, prepareMediaAsset } from "../../media/src/index.js";
 import { createPlannedPublishers } from "../../publishers/src/index.js";
 import { createDefaultTextProvider, createHttpFullTextProvider } from "../../providers/src/index.js";
 import { createDefaultSelector } from "../../selector/src/index.js";
@@ -12,6 +12,7 @@ import type {
   CandidateReview,
   CandidateSelection,
   PipelineDraftRequest,
+  PipelineAssetRegenerateRequest,
   PipelinePublishRequest,
   PipelineRunRequest,
   PipelineRunResult,
@@ -24,6 +25,7 @@ import type {
   VerifiedArticle,
   FullTextProvider,
   MediaComposer,
+  MediaAsset,
   PublisherAdapter,
   TextProvider,
   Selector,
@@ -54,6 +56,10 @@ function defaultFullTextHandoffDir(runId: string, baseDir?: string, runsRoot?: s
 
 function defaultDraftArtifactDir(runId: string, baseDir?: string, runsRoot?: string): string {
   return baseDir ?? path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "drafts");
+}
+
+function defaultAssetDir(runId: string, runsRoot?: string): string {
+  return path.join(runsRoot ?? path.resolve("workspace", "runs"), runId, "assets");
 }
 
 function defaultFullTextArtifactDir(runId: string, baseDir?: string, runsRoot?: string): string {
@@ -190,6 +196,21 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
   const publishers = deps.publishers ?? createPlannedPublishers();
   const fullTextProvider = deps.fullTextProvider ?? createHttpFullTextProvider();
 
+  async function acquireFullTextForItem(item: SourceItem, article: VerifiedArticle): Promise<VerifiedArticle> {
+    try {
+      return await fullTextProvider.acquire(item, article);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return {
+        ...article,
+        status: "failed",
+        method: "http",
+        evidenceUrl: item.url,
+        failureReason: `HTTP 原文获取失败：${message}`
+      };
+    }
+  }
+
   async function collectFromQuery(runId: string, query: string, request: { allowBrowserFallback?: boolean; allowMediaCrawlerFallback?: boolean }, errors: Array<{ stage: string; message: string }>): Promise<SourceItem[]> {
     const sourceAdapters = deps.sourceAdapters ?? createDefaultSourceAdapters({
       enableMediaCrawlerFallback: request.allowMediaCrawlerFallback === true
@@ -284,9 +305,10 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
     return { verifiedArticles, scored };
   }
 
-  async function fetchSelectedFullText(runId: string, sourceItems: SourceItem[], verifiedArticles: VerifiedArticle[], selected: CandidateSelection[], request: { allowBrowserFallback?: boolean; allowMediaCrawlerFallback?: boolean }) {
+  async function fetchSelectedFullText(runId: string, sourceItems: SourceItem[], verifiedArticles: VerifiedArticle[], selected: CandidateSelection[], request: { allowBrowserFallback?: boolean; allowMediaCrawlerFallback?: boolean }, errors?: Array<{ stage: string; message: string }>, targetCount?: number) {
     const usableSelections: CandidateSelection[] = [];
     for (const selection of selected) {
+      if (targetCount !== undefined && usableSelections.length >= targetCount) break;
       const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
       const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
       if (!article || !item) continue;
@@ -300,7 +322,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
           sourceItemId: item.id,
           evidenceUrl: item.url
         });
-        const acquired = await fullTextProvider.acquire(item, article);
+        const acquired = await acquireFullTextForItem(item, article);
         const acquiredWithArtifact = await writeFullTextArtifact(runId, item, acquired, deps.fullTextArtifactDir, deps.store.rootDir);
         verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquiredWithArtifact);
         currentArticle = acquiredWithArtifact;
@@ -332,46 +354,55 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       if (canGenerateFinalDraft(item, currentArticle)) {
         usableSelections.push(selection);
       } else {
+        const reason = currentArticle.failureReason ?? "Full original text was not available for final summary generation.";
+        errors?.push({ stage: `select:${item.id}`, message: reason });
         await deps.store.appendEvent(runId, {
           stage: "select",
           status: "skipped",
           sourceItemId: item.id,
-          reason: currentArticle.failureReason ?? "Full original text was not available for final summary generation."
+          score: 0,
+          reason
         });
       }
     }
     return usableSelections;
   }
 
-  async function summarizeSelections(runId: string, sourceItems: SourceItem[], verifiedArticles: VerifiedArticle[], selections: CandidateSelection[]) {
+  async function summarizeSelections(runId: string, sourceItems: SourceItem[], verifiedArticles: VerifiedArticle[], selections: CandidateSelection[], errors?: Array<{ stage: string; message: string }>) {
     const summaries = [];
     const candidateReviews: CandidateReview[] = [];
     for (const selection of selections) {
       const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
       const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
       if (!article || !item) continue;
-      const summary = await textProvider.summarize(article, selection);
-      summaries.push(summary);
-      candidateReviews.push({
-        sourceItemId: item.id,
-        title: item.title,
-        url: item.url,
-        sourceType: item.sourceType,
-        collectorAdapter: item.collectorAdapter,
-        publishedAt: item.publishedAt,
-        brief: item.summary ?? item.rawText,
-        score: selection.score,
-        reason: selection.reason,
-        angle: selection.angle,
-        tags: selection.tags,
-        originalStatus: article.status,
-        originalMethod: article.method,
-        originalArtifactPath: article.fullTextArtifactPath,
-        originalPreview: article.fullText?.slice(0, 1200),
-        summary,
-        riskNotes: userRiskNotes(summary.riskNotes)
-      });
-      await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
+      try {
+        const summary = await textProvider.summarize(article, selection);
+        summaries.push(summary);
+        candidateReviews.push({
+          sourceItemId: item.id,
+          title: item.title,
+          url: item.url,
+          sourceType: item.sourceType,
+          collectorAdapter: item.collectorAdapter,
+          publishedAt: item.publishedAt,
+          brief: item.summary ?? item.rawText,
+          score: selection.score,
+          reason: selection.reason,
+          angle: selection.angle,
+          tags: selection.tags,
+          originalStatus: article.status,
+          originalMethod: article.method,
+          originalArtifactPath: article.fullTextArtifactPath,
+          originalPreview: article.fullText?.slice(0, 1200),
+          summary,
+          riskNotes: userRiskNotes(summary.riskNotes)
+        });
+        await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors?.push({ stage: `summarize:${item.id}`, message });
+        await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "skipped", message });
+      }
     }
     return { summaries, candidateReviews };
   }
@@ -400,7 +431,14 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
     const assets = [];
     for (const draft of drafts) {
       const plannedAssets = await media.planAssets(draft);
-      const generatedAssets = await media.generateAssets(plannedAssets);
+      const preparedAssets = plannedAssets.map((asset, index) => prepareMediaAsset(
+        runId,
+        draft,
+        asset,
+        asset.index ?? index + 1,
+        defaultAssetDir(runId, deps.store.rootDir)
+      ));
+      const generatedAssets = await media.generateAssets(preparedAssets);
       assets.push(...generatedAssets);
       await media.attachAssets(draft, generatedAssets);
     }
@@ -408,14 +446,15 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
     return assets;
   }
 
-  async function publishExistingDrafts(runId: string, drafts: PlatformDraft[], request: { allowRealDraft?: boolean }) {
+  async function publishExistingDrafts(runId: string, drafts: PlatformDraft[], assets: MediaAsset[], request: { allowRealDraft?: boolean }) {
     const publishResults = [];
     for (const draft of drafts) {
       const publisher = publishers.find((candidate) => candidate.platform === draft.platform);
       if (publisher) {
         const publishResult = await publisher.publishDraft(draft, {
           allowRealDraft: request.allowRealDraft === true,
-          handoffDir: defaultHandoffDir(runId, deps.publisherHandoffDir, deps.store.rootDir)
+          handoffDir: defaultHandoffDir(runId, deps.publisherHandoffDir, deps.store.rootDir),
+          assets: assets.filter((asset) => asset.draftId === draft.id || draft.assetIds?.includes(asset.id))
         });
         publishResults.push(publishResult);
         await deps.store.appendEvent(runId, {
@@ -451,12 +490,12 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         });
       }
       const { verifiedArticles, scored } = await verifyAndScore(request.runId, sourceItems, errors);
-      const selected = selector.selectTopN(scored, request.candidateCount);
-      const selections = await fetchSelectedFullText(request.runId, sourceItems, verifiedArticles, selected, request);
+      const ranked = selector.selectTopN(scored, scored.length);
+      const selections = await fetchSelectedFullText(request.runId, sourceItems, verifiedArticles, ranked, request, errors, request.candidateCount);
       if (sourceItems.length > 0 && scored.length > 0 && selections.length === 0) {
         errors.push({ stage: "select", message: "No selected candidate had verified original text for candidate review." });
       }
-      const { summaries, candidateReviews } = await summarizeSelections(request.runId, sourceItems, verifiedArticles, selections);
+      const { summaries, candidateReviews } = await summarizeSelections(request.runId, sourceItems, verifiedArticles, selections, errors);
       const finishedAt = new Date().toISOString();
       const result: PipelineRunResult = {
         ...emptyRun(request.runId, startedAt),
@@ -514,7 +553,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         if (sourceItemIds.size > 0 && !sourceItemIds.has(draft.sourceItemId)) return false;
         return true;
       });
-      const nextPublishResults = await publishExistingDrafts(request.runId, drafts, request);
+      const nextPublishResults = await publishExistingDrafts(request.runId, drafts, existing.assets ?? [], request);
       const replacedKeys = new Set(nextPublishResults.map((result) => `${result.platform}:${result.draftId}`));
       const previousPublishResults = (existing.publishResults ?? []).filter((result) => !replacedKeys.has(`${result.platform}:${result.draftId}`));
       const result: PipelineRunResult = {
@@ -528,6 +567,55 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       await deps.store.appendEvent(request.runId, { stage: "platform_publish", status: "finished", count: nextPublishResults.length });
       await deps.store.appendEvent(request.runId, { stage: "finished", status: result.status });
       return result;
+    },
+    async regenerateAsset(request: PipelineAssetRegenerateRequest): Promise<PipelineRunResult> {
+      const existing = await deps.store.readRun(request.runId);
+      if (!existing) {
+        throw new Error(`Run ${request.runId} not found.`);
+      }
+      const assetIndex = existing.assets.findIndex((asset) => asset.id === request.assetId);
+      if (assetIndex < 0) {
+        throw new Error(`Asset ${request.assetId} not found.`);
+      }
+      const currentAsset = existing.assets[assetIndex];
+      const draft = existing.drafts.find((candidate) => candidate.id === currentAsset.draftId);
+      if (!draft) {
+        throw new Error(`Draft ${currentAsset.draftId} not found for asset ${request.assetId}.`);
+      }
+      await deps.store.appendEvent(request.runId, {
+        stage: "asset_regenerate",
+        assetId: request.assetId,
+        status: "started"
+      });
+      const nextRevision = (currentAsset.revision ?? 1) + 1;
+      const preparedAsset = prepareMediaAsset(
+        request.runId,
+        draft,
+        {
+          ...currentAsset,
+          revision: nextRevision,
+          filename: undefined,
+          path: undefined,
+          status: "planned",
+          source: "placeholder",
+          errorMessage: undefined
+        },
+        currentAsset.index ?? 1,
+        defaultAssetDir(request.runId, deps.store.rootDir)
+      );
+      const draftCopy = { ...draft, assetIds: draft.assetIds ? [...draft.assetIds] : undefined };
+      await media.attachAssets(draftCopy, [preparedAsset]);
+      existing.assets[assetIndex] = preparedAsset;
+      existing.finishedAt = new Date().toISOString();
+      existing.reviewQueue = buildReviewQueue(existing);
+      await deps.store.saveRun(existing);
+      await deps.store.appendEvent(request.runId, {
+        stage: "asset_regenerate",
+        assetId: request.assetId,
+        revision: preparedAsset.revision,
+        status: preparedAsset.status
+      });
+      return existing;
     },
     async run(request: PipelineRunRequest): Promise<PipelineRunResult> {
       const startedAt = new Date().toISOString();
@@ -609,7 +697,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
             sourceItemId: item.id,
             evidenceUrl: item.url
           });
-          const acquired = await fullTextProvider.acquire(item, article);
+          const acquired = await acquireFullTextForItem(item, article);
           const acquiredWithArtifact = await writeFullTextArtifact(request.runId, item, acquired, deps.fullTextArtifactDir, deps.store.rootDir);
           verifiedArticles.splice(verifiedArticles.indexOf(article), 1, acquiredWithArtifact);
           currentArticle = acquiredWithArtifact;
@@ -641,11 +729,14 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         if (canGenerateFinalDraft(item, currentArticle)) {
           selections.push(selection);
         } else {
+          const reason = currentArticle.failureReason ?? "Full original text was not available for final summary generation.";
+          errors.push({ stage: `select:${item.id}`, message: reason });
           await deps.store.appendEvent(request.runId, {
             stage: "select",
             status: "skipped",
             sourceItemId: item.id,
-            reason: currentArticle.failureReason ?? "Full original text was not available for final summary generation."
+            score: 0,
+            reason
           });
         }
       }
@@ -662,17 +753,23 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       for (const selection of selections) {
         const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
         if (!article) continue;
-        const summary = await textProvider.summarize(article, selection);
-        summaries.push(summary);
-        await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
-        if (request.requestedPlatforms.includes("review")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
-        }
-        if (request.requestedPlatforms.includes("wechat")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
-        }
-        if (request.requestedPlatforms.includes("xhs")) {
-          drafts.push(await writeDraftArtifact(request.runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
+        try {
+          const summary = await textProvider.summarize(article, selection);
+          summaries.push(summary);
+          await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
+          if (request.requestedPlatforms.includes("review")) {
+            drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
+          }
+          if (request.requestedPlatforms.includes("wechat")) {
+            drafts.push(await writeDraftArtifact(request.runId, await generator.generateWechatDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
+          }
+          if (request.requestedPlatforms.includes("xhs")) {
+            drafts.push(await writeDraftArtifact(request.runId, await generator.generateXhsDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push({ stage: `summarize:${article.sourceItemId}`, message });
+          await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "skipped", message });
         }
       }
       await deps.store.appendEvent(request.runId, { stage: "generate", count: drafts.length });
@@ -680,7 +777,14 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       const assets = [];
       for (const draft of drafts) {
         const plannedAssets = await media.planAssets(draft);
-        const generatedAssets = await media.generateAssets(plannedAssets);
+        const preparedAssets = plannedAssets.map((asset, index) => prepareMediaAsset(
+          request.runId,
+          draft,
+          asset,
+          asset.index ?? index + 1,
+          defaultAssetDir(request.runId, deps.store.rootDir)
+        ));
+        const generatedAssets = await media.generateAssets(preparedAssets);
         assets.push(...generatedAssets);
         await media.attachAssets(draft, generatedAssets);
       }
@@ -692,7 +796,8 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         if (publisher) {
           const publishResult = await publisher.publishDraft(draft, {
             allowRealDraft: request.allowRealDraft === true,
-            handoffDir: defaultHandoffDir(request.runId, deps.publisherHandoffDir, deps.store.rootDir)
+            handoffDir: defaultHandoffDir(request.runId, deps.publisherHandoffDir, deps.store.rootDir),
+            assets: assets.filter((asset) => asset.draftId === draft.id || draft.assetIds?.includes(asset.id))
           });
           publishResults.push(publishResult);
           await deps.store.appendEvent(request.runId, {

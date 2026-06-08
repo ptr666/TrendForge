@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -42,6 +42,75 @@ async function waitForHealth(baseUrl: string): Promise<void> {
   }
   throw new Error("API did not become healthy.");
 }
+
+test("API serves registered run asset files and regenerates one asset", async () => {
+  const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-api-asset-runs-"));
+  const configDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-api-asset-config-"));
+  const port = 4900 + Math.floor(Math.random() * 1000);
+  const baseUrl = `http://127.0.0.1:${port}`;
+  const child = spawn(process.execPath, [apiPath], {
+    env: { ...process.env, TRENDFORGE_PORT: String(port), TRENDFORGE_RUNS_DIR: runsDir, TRENDFORGE_CONFIG_DIR: configDir },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  try {
+    await waitForHealth(baseUrl);
+    const runId = "asset-api-run";
+    const assetDir = path.join(runsDir, runId, "assets");
+    const assetPath = path.join(assetDir, "asset.png");
+    await mkdir(assetDir, { recursive: true });
+    await writeFile(assetPath, Buffer.from("asset-bytes"));
+    await writeFile(path.join(runsDir, `${runId}.json`), JSON.stringify({
+      runId,
+      status: "success",
+      startedAt: new Date().toISOString(),
+      finishedAt: new Date().toISOString(),
+      sourceItems: [],
+      verifiedArticles: [],
+      selections: [],
+      summaries: [],
+      candidateReviews: [],
+      drafts: [{
+        id: "wechat-source",
+        sourceItemId: "source",
+        platform: "wechat",
+        title: "Asset draft",
+        body: "Draft body",
+        assetIds: ["tf-asset-api-run-source-wechat-cover-1-r1"]
+      }],
+      assets: [{
+        id: "tf-asset-api-run-source-wechat-cover-1-r1",
+        draftId: "wechat-source",
+        platform: "wechat",
+        type: "cover",
+        source: "generated",
+        status: "needs-approval",
+        revision: 1,
+        path: assetPath
+      }],
+      publishResults: [],
+      errors: []
+    }, null, 2), "utf8");
+
+    const assetId = "tf-asset-api-run-source-wechat-cover-1-r1";
+    const fileResponse = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(assetId)}/file`);
+    assert.equal(fileResponse.ok, true);
+    assert.equal(fileResponse.headers.get("content-type"), "image/png");
+    assert.equal(Buffer.from(await fileResponse.arrayBuffer()).toString("utf8"), "asset-bytes");
+
+    const regenerated = await requestJson(`${baseUrl}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(assetId)}/regenerate`, {
+      method: "POST"
+    }) as { assets?: Array<{ id: string; revision?: number; status?: string; path?: string }> };
+    const asset = regenerated.assets?.find((candidate) => candidate.id === assetId);
+    assert.equal(asset?.revision, 2);
+    assert.equal(asset?.status, "planned");
+    assert.equal(asset?.path, undefined);
+  } finally {
+    child.kill();
+    await rm(runsDir, { recursive: true, force: true });
+    await rm(configDir, { recursive: true, force: true });
+  }
+});
 
 test("API can run RSS pipeline and read back run history artifacts", async () => {
   const runsDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-api-runs-"));
@@ -187,6 +256,16 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
         provider: "deterministic",
         baseUrl: "https://api.deepseek.com",
         model: "deepseek-v4-flash"
+      })
+    });
+    await requestJson(`${baseUrl}/config/image-model`, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        enabled: false,
+        provider: "none",
+        baseUrl: "https://api.openai.com/v1",
+        model: "gpt-image-1"
       })
     });
     const screenRun = await requestJson(`${baseUrl}/pipeline/screen`, {

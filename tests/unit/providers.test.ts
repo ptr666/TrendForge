@@ -1,9 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import {
   createBrowserActFullTextProvider,
   createDefaultTextProvider,
   createHttpFullTextProvider,
+  createOpenAICompatibleImageProvider,
   createOpenAICompatibleSelector,
   createOpenAICompatibleTextProvider
 } from "../../packages/providers/src/index.js";
@@ -126,6 +130,24 @@ test("HTTP full-text provider extracts plain text and reports readable failures"
   assert.match(failed.failureReason ?? "", /HTTP 原文获取失败/);
 });
 
+test("HTTP full-text provider fails short extracted originals even when a brief exists", async () => {
+  const provider = createHttpFullTextProvider({
+    fetchImpl: async () => new Response("Too short.", {
+      status: 200,
+      headers: { "content-type": "text/plain" }
+    })
+  });
+
+  const result = await provider.acquire(item, {
+    ...article,
+    fullText: "Existing brief text should not be treated as verified original text."
+  });
+
+  assert.equal(result.status, "failed");
+  assert.equal(result.method, "http");
+  assert.match(result.failureReason ?? "", /抽取出的正文太短/);
+});
+
 test("default text provider returns readable Chinese fallback summary", async () => {
   const provider = createDefaultTextProvider();
 
@@ -191,6 +213,191 @@ test("OpenAI-compatible text provider creates translated Chinese summary from ch
   assert.equal(result.translatedOriginal, "AI 智能体正在变成实际的工作流操作者。");
   assert.equal(result.summary, "AI 智能体正在从演示走向日常工作流。");
   assert.deepEqual(result.keyPoints, ["智能体收集信号", "团队需要审核 gate"]);
+});
+
+test("OpenAI-compatible image provider calls Responses image generation and writes an asset file", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-image-provider-"));
+  const requests: Array<{ url: string; body: Record<string, unknown>; authorization?: string }> = [];
+  const provider = createOpenAICompatibleImageProvider({
+    baseUrl: "http://images.example.test",
+    apiKey: "image-key",
+    model: "image-model",
+    outputDir: rootDir,
+    fetchImpl: async (url, init) => {
+      requests.push({
+        url: String(url),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>,
+        authorization: init?.headers instanceof Headers ? init.headers.get("authorization") ?? undefined : (init?.headers as Record<string, string>).authorization
+      });
+      return new Response(JSON.stringify({
+        output: [{
+          type: "image_generation_call",
+          result: Buffer.from("fake-png").toString("base64")
+        }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+
+  try {
+    const result = await provider.planPrompt({
+      id: "wechat-draft-1",
+      sourceItemId: "source-1",
+      platform: "wechat",
+      title: "AI workflow cover",
+      body: "Draft body",
+      digest: "Digest"
+    }, {
+      id: "cover-wechat-draft-1",
+      draftId: "wechat-draft-1",
+      type: "cover",
+      source: "placeholder",
+      ratio: "16:9",
+      filename: "custom-cover",
+      metadata: {
+        outputDir: path.join(rootDir, "run-assets")
+      }
+    });
+
+    assert.equal(requests[0]?.url, "http://images.example.test/v1/responses");
+    assert.equal(requests[0]?.authorization, "Bearer image-key");
+    assert.equal(requests[0]?.body.model, "image-model");
+    assert.deepEqual(requests[0]?.body.tools, [{ type: "image_generation" }]);
+    assert.match(String(requests[0]?.body.input), /16:9/);
+    assert.equal(result.source, "generated");
+    assert.equal(result.path, path.join(rootDir, "run-assets", "custom-cover.png"));
+    assert.equal((await readFile(result.path ?? "")).toString("utf8"), "fake-png");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("OpenAI-compatible image provider falls back to images generations when Responses rejects image model", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-image-generations-"));
+  const requests: Array<{ url: string; body: Record<string, unknown> }> = [];
+  const provider = createOpenAICompatibleImageProvider({
+    baseUrl: "http://images.example.test",
+    apiKey: "image-key",
+    model: "gpt-image-2",
+    outputDir: rootDir,
+    fetchImpl: async (url, init) => {
+      requests.push({
+        url: String(url),
+        body: JSON.parse(String(init?.body)) as Record<string, unknown>
+      });
+      if (String(url).endsWith("/responses")) {
+        return new Response(JSON.stringify({
+          error: {
+            message: "model gpt-image-2 is only supported on /v1/images/generations and /v1/images/edits"
+          }
+        }), { status: 503, statusText: "Service Unavailable", headers: { "content-type": "application/json" } });
+      }
+      return new Response(JSON.stringify({
+        data: [{
+          b64_json: Buffer.from("fake-generations-png").toString("base64")
+        }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+
+  try {
+    const result = await provider.planPrompt({
+      id: "xhs-draft-1",
+      sourceItemId: "source-1",
+      platform: "xhs",
+      title: "AI workflow image",
+      body: "Draft body"
+    }, {
+      id: "xhs-image-draft-1",
+      draftId: "xhs-draft-1",
+      type: "xhs_image",
+      source: "placeholder",
+      ratio: "3:4"
+    });
+
+    assert.equal(requests[0]?.url, "http://images.example.test/v1/responses");
+    assert.equal(requests[1]?.url, "http://images.example.test/v1/images/generations");
+    assert.equal(requests[1]?.body.model, "gpt-image-2");
+    assert.equal(requests[1]?.body.size, "1024x1536");
+    assert.equal((await readFile(result.path ?? "")).toString("utf8"), "fake-generations-png");
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("OpenAI-compatible image provider times out stalled image requests", async () => {
+  const provider = createOpenAICompatibleImageProvider({
+    baseUrl: "http://images.example.test",
+    apiKey: "image-key",
+    model: "image-model",
+    requestTimeoutMs: 10,
+    fetchImpl: async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")));
+    })
+  });
+
+  await assert.rejects(
+    () => provider.planPrompt({
+      id: "wechat-draft-timeout",
+      sourceItemId: "source-timeout",
+      platform: "wechat",
+      title: "Timeout image",
+      body: "Draft body"
+    }, {
+      id: "cover-wechat-draft-timeout",
+      draftId: "wechat-draft-timeout",
+      type: "cover",
+      source: "placeholder",
+      ratio: "16:9"
+    }),
+    /timed out/
+  );
+});
+
+test("OpenAI-compatible provider treats bare host base URL as v1 chat completions endpoint", async () => {
+  const requests: string[] = [];
+  const provider = createOpenAICompatibleTextProvider({
+    baseUrl: "http://models.example.test",
+    apiKey: "test-key",
+    model: "summary-model",
+    fetchImpl: async (url) => {
+      requests.push(String(url));
+      return new Response(JSON.stringify({
+        choices: [{
+          message: {
+            content: JSON.stringify({
+              title: "标题",
+              translatedOriginal: "译文",
+              summary: "总结",
+              angle: "角度",
+              keyPoints: [],
+              riskNotes: []
+            })
+          }
+        }]
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+  });
+
+  await provider.summarize({ ...article, status: "verified", method: "http", fullText: "text" }, selection);
+
+  assert.equal(requests[0], "http://models.example.test/v1/chat/completions");
+});
+
+test("OpenAI-compatible provider reports HTML responses as endpoint configuration errors", async () => {
+  const provider = createOpenAICompatibleTextProvider({
+    baseUrl: "http://models.example.test",
+    apiKey: "test-key",
+    model: "summary-model",
+    fetchImpl: async () => new Response("<!doctype html><html><title>Dashboard</title></html>", {
+      status: 200,
+      headers: { "content-type": "text/html; charset=utf-8" }
+    })
+  });
+
+  await assert.rejects(
+    provider.summarize({ ...article, status: "verified", method: "http", fullText: "text" }, selection),
+    /模型接口返回了 HTML/
+  );
 });
 
 test("OpenAI-compatible selector scores candidates with Chinese reason", async () => {

@@ -3,6 +3,7 @@ setlocal
 
 cd /d "%~dp0"
 
+set "ROOT_DIR=%~dp0"
 set "API_URL=http://127.0.0.1:4780"
 set "WEB_URL=http://127.0.0.1:5173/"
 
@@ -56,13 +57,13 @@ type nul > "workspace\web.log"
 type nul > "workspace\web.err.log"
 (
   echo @echo off
-  echo cd /d "%CD%"
-  echo node dist/apps/api/src/server.js ^>^> workspace\api.log 2^>^> workspace\api.err.log
+  echo cd /d "%ROOT_DIR%"
+  echo npm.cmd run api ^>^> workspace\api.log 2^>^> workspace\api.err.log
 ) > "workspace\run-api.cmd"
 (
   echo @echo off
-  echo cd /d "%CD%"
-  echo node node_modules/vite/bin/vite.js --host 127.0.0.1 apps/web ^>^> workspace\web.log 2^>^> workspace\web.err.log
+  echo cd /d "%ROOT_DIR%"
+  echo npm.cmd run web:dev ^>^> workspace\web.log 2^>^> workspace\web.err.log
 ) > "workspace\run-web.cmd"
 
 echo [TrendForge] Building backend...
@@ -76,8 +77,8 @@ if errorlevel 1 (
 
 echo.
 echo [TrendForge] Starting API and Web windows...
-start "TrendForge API" /min "%CD%\workspace\run-api.cmd"
-start "TrendForge Web" /min "%CD%\workspace\run-web.cmd"
+start "TrendForge API" /min "%ROOT_DIR%workspace\run-api.cmd"
+start "TrendForge Web" /min "%ROOT_DIR%workspace\run-web.cmd"
 
 echo.
 echo [TrendForge] Waiting for API...

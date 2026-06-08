@@ -157,7 +157,7 @@ export interface TaskProgress {
   currentStage: string;
   processedCount: number;
   elapsedMs: number;
-  status: "running" | "success" | "failed";
+  status: "running" | "success" | "partial" | "failed";
   failureReason?: string;
 }
 
@@ -215,7 +215,25 @@ export interface PipelineRun {
   candidateReviews?: CandidateReview[];
   summaries: Array<Record<string, unknown>>;
   drafts: Array<{ id: string; sourceItemId: string; platform: Platform; title: string; artifactPath?: string; body?: string; digest?: string; assetIds?: string[] }>;
-  assets: Array<{ id: string; draftId: string; type: string; source: string; status?: string; ratio?: string; prompt?: string; path?: string }>;
+  assets: Array<{
+    id: string;
+    draftId: string;
+    platform?: Platform;
+    type: string;
+    role?: string;
+    index?: number;
+    revision?: number;
+    filename?: string;
+    source: string;
+    status?: string;
+    ratio?: string;
+    prompt?: string;
+    altText?: string;
+    stylePrompt?: string;
+    previewUrl?: string;
+    errorMessage?: string;
+    path?: string;
+  }>;
   publishResults: Array<Record<string, unknown>>;
   reviewQueue?: ReviewQueueItem[];
   errors: Array<Record<string, unknown>>;

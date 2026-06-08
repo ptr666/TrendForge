@@ -145,6 +145,8 @@ provider 和平台检查：
 - `POST /verify/xhs`
 - `GET /publishers`
 - `POST /runs/:runId/assets/:assetId/approve`
+- `GET /runs/:runId/assets/:assetId/file`
+- `POST /runs/:runId/assets/:assetId/regenerate`
 
 真实平台草稿默认禁用；只有显式开启 real draft，并通过健康检查后才会创建草稿。正式发布仍保持禁用。
 
@@ -186,10 +188,14 @@ provider 调用 `/chat/completions`，并期望模型返回包含 `title`、`tra
 
 图片 provider 与文本 provider 分离。可在 Web 工作台“配置”区保存图片生成模型；配置文件位于 `workspace/config/image-model.json`，和其他本地凭证一样不会提交到仓库。当前默认不配置图片 provider，因此不会生成图片资产或图片审批队列。
 
+配置 OpenAI-compatible 图片 provider 后，TrendForge 会执行真实生图请求：优先调用 `/v1/responses` 的 `image_generation` tool；如果模型服务提示该模型只支持 `/v1/images/generations`，会自动 fallback 到 `/v1/images/generations`。生成文件默认保存到 `workspace/runs/<runId>/assets/`，并可通过 API 单图重生成。
+
 后续接入图片 provider 时，应保持以下默认平台规格：
 
-- 微信公众号：16:9 封面图。
-- 小红书：3:4 图文图。
+- 微信公众号：16:9 封面图和 16:9 正文配图。
+- 小红书：3:4 竖版封面卡和 3:4 图文卡。
+
+本地测试时不要把 API key 写进仓库文档或 tracked 文件；使用 Web 配置页、`workspace/config/image-model.json` 或 `TRENDFORGE_IMAGE_API_KEY` 环境变量即可。
 
 微信公众号真实上传使用微信官方 API 链路：`GET /cgi-bin/token` 获取 access token，`POST /cgi-bin/material/add_material` 上传封面永久素材，`POST /cgi-bin/media/uploadimg` 转存正文图片，最后 `POST /cgi-bin/draft/add` 创建草稿。TrendForge 可直接保存 AppID/AppSecret，也兼容 legacy 凭据脚本读取方式；只保存 AppID 时，联通与上传 gate 会保持 blocked。
 

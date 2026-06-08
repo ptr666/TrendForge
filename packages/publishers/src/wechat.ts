@@ -1,6 +1,6 @@
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PlatformDraft, PublishResult } from "../../core/src/types.js";
+import type { MediaAsset, PlatformDraft, PublishResult } from "../../core/src/types.js";
 import type { WechatConfig } from "../../config/src/local-config.js";
 
 export interface WechatTokenResult {
@@ -143,6 +143,32 @@ function wechatArticleFromDraft(draft: PlatformDraft, coverMediaId: string) {
   };
 }
 
+function usableAssetPath(asset: MediaAsset): string | undefined {
+  if (asset.status === "blocked") return undefined;
+  if (!asset.path) return undefined;
+  if (asset.source !== "generated" && asset.source !== "local") return undefined;
+  return asset.path;
+}
+
+function coverAssetPath(assets: MediaAsset[] = []): string | undefined {
+  return assets.find((asset) => asset.type === "cover" && usableAssetPath(asset))?.path;
+}
+
+function inlineImageAssets(assets: MediaAsset[] = []): MediaAsset[] {
+  return assets.filter((asset) => asset.type === "inline_image" && usableAssetPath(asset));
+}
+
+function draftWithInlineImages(draft: PlatformDraft, assets: MediaAsset[] = []): PlatformDraft {
+  const imageHtml = inlineImageAssets(assets)
+    .map((asset) => `<figure><img src="${asset.path}" alt="${asset.altText ?? draft.title}" /><figcaption>${asset.altText ?? ""}</figcaption></figure>`)
+    .join("\n");
+  if (!imageHtml) return draft;
+  return {
+    ...draft,
+    body: `${draft.body}\n\n${imageHtml}`
+  };
+}
+
 function detectMimeType(filePath: string): string {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === ".png") return "image/png";
@@ -196,7 +222,16 @@ async function requestWechatMediaUpload(
   };
 }
 
-async function uploadCoverMediaId(config: WechatConfig, accessToken: string, fetchImpl: typeof fetch): Promise<string | undefined> {
+async function uploadCoverMediaId(config: WechatConfig, accessToken: string, fetchImpl: typeof fetch, assets: MediaAsset[] = []): Promise<string | undefined> {
+  const generatedCoverPath = coverAssetPath(assets);
+  if (generatedCoverPath) {
+    const file = await fileFromPath(generatedCoverPath);
+    const uploaded = await requestWechatMediaUpload(accessToken, "/cgi-bin/material/add_material", file, fetchImpl);
+    if (!uploaded.mediaId) {
+      throw new Error(`WeChat generated cover upload failed: ${uploaded.errmsg ?? uploaded.errcode ?? uploaded.status}`);
+    }
+    return uploaded.mediaId;
+  }
   if (config.coverMediaId) return config.coverMediaId;
   if (!config.coverImagePath) return undefined;
   const file = await fileFromPath(config.coverImagePath);
@@ -241,14 +276,18 @@ export async function requestWechatDraftAdd(
   accessToken: string,
   draft: PlatformDraft,
   coverMediaId: string,
+  assetsOrFetch: MediaAsset[] | typeof fetch = [],
   fetchImpl: typeof fetch = fetch
 ): Promise<WechatDraftResult> {
+  const assets = Array.isArray(assetsOrFetch) ? assetsOrFetch : [];
+  const realFetchImpl = typeof assetsOrFetch === "function" ? assetsOrFetch : fetchImpl;
   const url = new URL("https://api.weixin.qq.com/cgi-bin/draft/add");
   url.searchParams.set("access_token", accessToken);
-  const articleImageResult = await replaceArticleImages(accessToken, draft.body, fetchImpl);
-  const draftWithUploadedImages = { ...draft, body: articleImageResult.html };
+  const draftWithLocalImages = draftWithInlineImages(draft, assets);
+  const articleImageResult = await replaceArticleImages(accessToken, draftWithLocalImages.body, realFetchImpl);
+  const draftWithUploadedImages = { ...draftWithLocalImages, body: articleImageResult.html };
 
-  const response = await fetchImpl(url, {
+  const response = await realFetchImpl(url, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(wechatArticleFromDraft(draftWithUploadedImages, coverMediaId))
@@ -265,7 +304,7 @@ export async function requestWechatDraftAdd(
 
 export async function checkWechatDraftGate(
   config: WechatConfig,
-  options: { allowRealDraft?: boolean; fetchImpl?: typeof fetch } = {}
+  options: { allowRealDraft?: boolean; fetchImpl?: typeof fetch; assets?: MediaAsset[] } = {}
 ): Promise<WechatDraftGate> {
   if (options.allowRealDraft !== true) {
     return {
@@ -291,7 +330,7 @@ export async function checkWechatDraftGate(
       token
     };
   }
-  if (!config.coverMediaId && !config.coverImagePath) {
+  if (!config.coverMediaId && !config.coverImagePath && !coverAssetPath(options.assets ?? [])) {
     return {
       ok: false,
       status: "blocked",
@@ -328,8 +367,9 @@ export function createWechatOfficialPublisher(
     },
     async publishDraft(
       draft: PlatformDraft,
-      publishOptions: { allowRealDraft?: boolean; handoffDir?: string } = {}
+      publishOptions: { allowRealDraft?: boolean; handoffDir?: string; assets?: MediaAsset[] } = {}
     ): Promise<PublishResult> {
+      const assets = publishOptions.assets ?? [];
       const artifactPath = await writeWechatHandoff(draft, publishOptions.handoffDir);
       const plannedCommands = wechatCommands(draft);
       if (publishOptions.allowRealDraft !== true) {
@@ -344,7 +384,7 @@ export function createWechatOfficialPublisher(
         };
       }
 
-      const gate = await checkWechatDraftGate(config, { allowRealDraft: true, fetchImpl });
+      const gate = await checkWechatDraftGate(config, { allowRealDraft: true, fetchImpl, assets });
       if (!gate.ok) {
         return {
           draftId: draft.id,
@@ -372,7 +412,7 @@ export function createWechatOfficialPublisher(
 
       let coverMediaId = "";
       try {
-        coverMediaId = await uploadCoverMediaId(config, token.token, fetchImpl) ?? "";
+        coverMediaId = await uploadCoverMediaId(config, token.token, fetchImpl, assets) ?? "";
       } catch (error) {
         return {
           draftId: draft.id,
@@ -385,7 +425,7 @@ export function createWechatOfficialPublisher(
         };
       }
 
-      const created = await requestWechatDraftAdd(token.token, draft, coverMediaId, fetchImpl);
+      const created = await requestWechatDraftAdd(token.token, draft, coverMediaId, assets, fetchImpl);
       if (!created.ok) {
         return {
           draftId: draft.id,

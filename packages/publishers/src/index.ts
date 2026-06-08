@@ -1,6 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import type { PlannedCommand, PlatformDraft, PublisherAdapter, PublishResult } from "../../core/src/types.js";
+import type { MediaAsset, PlannedCommand, PlatformDraft, PublisherAdapter, PublishResult } from "../../core/src/types.js";
 
 function wechatCommands(draft: PlatformDraft): PlannedCommand[] {
   return [
@@ -98,7 +98,7 @@ class PlannedPublisher implements PublisherAdapter {
     };
   }
 
-  async publishDraft(draft: PlatformDraft, options: { allowRealDraft?: boolean; handoffDir?: string } = {}): Promise<PublishResult> {
+  async publishDraft(draft: PlatformDraft, options: { allowRealDraft?: boolean; handoffDir?: string; assets?: MediaAsset[] } = {}): Promise<PublishResult> {
     const plannedCommands = this.platform === "wechat" ? wechatCommands(draft) : xhsCommands(draft);
     const artifactPath = await writeHandoff(this.platform, draft, plannedCommands, options.handoffDir);
     if (options.allowRealDraft === true) {

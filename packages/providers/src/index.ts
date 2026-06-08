@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process";
+import { mkdir, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { promisify } from "node:util";
 import type {
   ArticleSummary,
@@ -39,6 +41,49 @@ async function defaultCommandRunner(command: string, args: string[]): Promise<Co
 
 function compactText(value: string, limit: number): string {
   return value.replace(/\s+/g, " ").trim().slice(0, limit);
+}
+
+function chatCompletionsEndpoint(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (/\/chat\/completions$/i.test(trimmed)) return trimmed;
+  if (/\/v1$/i.test(trimmed)) return `${trimmed}/chat/completions`;
+  return `${trimmed}/v1/chat/completions`;
+}
+
+function responsesEndpoint(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (/\/responses$/i.test(trimmed)) return trimmed;
+  if (/\/v1$/i.test(trimmed)) return `${trimmed}/responses`;
+  return `${trimmed}/v1/responses`;
+}
+
+function imageGenerationsEndpoint(baseUrl: string): string {
+  const trimmed = baseUrl.trim().replace(/\/+$/, "");
+  if (/\/images\/generations$/i.test(trimmed)) return trimmed;
+  if (/\/v1$/i.test(trimmed)) return `${trimmed}/images/generations`;
+  return `${trimmed}/v1/images/generations`;
+}
+
+async function readChatCompletionResponse(response: Response, providerName: string, endpoint: string): Promise<ChatCompletionResponse> {
+  const contentType = response.headers.get("content-type") ?? "";
+  const bodyText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`${providerName} 调用失败：HTTP ${response.status} ${response.statusText}。请求地址：${endpoint}`);
+  }
+
+  if (!/json/i.test(contentType)) {
+    const preview = compactText(bodyText, 180);
+    const htmlHint = /<!doctype|<html/i.test(bodyText) ? "模型接口返回了 HTML 页面，而不是 JSON。" : "模型接口返回的内容不是 JSON。";
+    throw new Error(`${htmlHint} 请检查模型服务地址是否为 OpenAI-compatible API 地址，通常应以 /v1 结尾。当前请求地址：${endpoint}。返回片段：${preview}`);
+  }
+
+  try {
+    return JSON.parse(bodyText) as ChatCompletionResponse;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`${providerName} 返回的 JSON 无法解析：${message}。返回片段：${compactText(bodyText, 180)}`);
+  }
 }
 
 function splitSentences(value: string): string[] {
@@ -147,12 +192,14 @@ export function createHttpFullTextProvider(options: {
         };
       } catch (error) {
         if (options.fallback) return options.fallback.acquire(item, article);
+        const message = error instanceof Error ? error.message : String(error);
+        const extractedTextTooShort = message.includes("抽取出的正文太短");
         return {
           ...article,
-          status: article.fullText?.trim() ? "partial" : "failed",
+          status: !extractedTextTooShort && article.fullText?.trim() ? "partial" : "failed",
           method: "http",
           evidenceUrl: item.url,
-          failureReason: `HTTP 原文获取失败：${error instanceof Error ? error.message : String(error)}`
+          failureReason: `HTTP 原文获取失败：${message}`
         };
       }
     }
@@ -208,6 +255,188 @@ export function createPromptOnlyImageProvider(): ImageProvider {
           `标题：${draft.title}`,
           `摘要：${draft.digest ?? draft.body.slice(0, 360)}`
         ].join("\n")
+      };
+    }
+  };
+}
+
+function imagePromptForDraft(draft: PlatformDraft, asset: MediaAsset): string {
+  const platformInstruction = draft.platform === "wechat"
+    ? asset.type === "cover"
+      ? "Generate a 16:9 WeChat official account cover image. Modern Chinese tech media style, restrained editorial layout, no watermark, no logo, avoid tiny unreadable text."
+      : "Generate a 16:9 WeChat official account inline infographic. Clear structure, readable Chinese editorial composition, suitable for a long-form article body, no watermark, no logo."
+    : asset.type === "cover"
+      ? "Generate a 3:4 Xiaohongshu cover card for an image-text note. Strong visual center, bold social feed composition, high click-through appeal, no watermark, no logo."
+      : "Generate a 3:4 Xiaohongshu image-text content card. Lifestyle-tech social style, clear visual hierarchy, suitable for swipe reading, no watermark, no logo.";
+  return [
+    platformInstruction,
+    asset.stylePrompt ? `Platform style: ${asset.stylePrompt}` : "",
+    `Title: ${draft.title}`,
+    `Digest: ${draft.digest ?? compactText(draft.body, 360)}`,
+    asset.altText ? `Image purpose: ${asset.altText}` : "",
+    `Target ratio: ${asset.ratio ?? "platform default"}`
+  ].filter(Boolean).join("\n");
+}
+
+function imageFileExtension(mimeType: string): string {
+  if (/jpe?g/i.test(mimeType)) return ".jpg";
+  if (/webp/i.test(mimeType)) return ".webp";
+  return ".png";
+}
+
+function readResponsesImageBase64(payload: unknown): string | undefined {
+  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const output = Array.isArray(body.output) ? body.output : [];
+  for (const item of output) {
+    const candidate = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    if (candidate.type === "image_generation_call" && typeof candidate.result === "string") {
+      return candidate.result;
+    }
+  }
+  const data = Array.isArray(body.data) ? body.data : [];
+  for (const item of data) {
+    const candidate = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    if (typeof candidate.b64_json === "string") return candidate.b64_json;
+  }
+  return undefined;
+}
+
+function readImageUrl(payload: unknown): string | undefined {
+  const body = payload && typeof payload === "object" ? payload as Record<string, unknown> : {};
+  const data = Array.isArray(body.data) ? body.data : [];
+  for (const item of data) {
+    const candidate = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    if (typeof candidate.url === "string") return candidate.url;
+  }
+  return undefined;
+}
+
+function imageGenerationSize(asset: MediaAsset): string {
+  if (asset.ratio === "3:4") return "1024x1536";
+  if (asset.ratio === "16:9") return "1536x1024";
+  return "1024x1024";
+}
+
+async function fetchWithTimeout(fetchImpl: typeof fetch, url: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+  const controller = new AbortController();
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      fetchImpl(url, { ...init, signal: controller.signal }),
+      new Promise<Response>((_, reject) => {
+        timeout = setTimeout(() => {
+          controller.abort();
+          reject(new Error(`Image model request timed out after ${timeoutMs}ms. Endpoint: ${url}`));
+        }, timeoutMs);
+      })
+    ]);
+  } catch (error) {
+    if (error instanceof Error && error.name === "AbortError") {
+      throw new Error(`Image model request timed out after ${timeoutMs}ms. Endpoint: ${url}`);
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
+async function readImageResponse(response: Response, endpoint: string): Promise<Record<string, unknown>> {
+  const contentType = response.headers.get("content-type") ?? "";
+  const bodyText = await response.text();
+
+  if (!response.ok) {
+    throw new Error(`Image model request failed: HTTP ${response.status} ${response.statusText}. Endpoint: ${endpoint}. Body: ${compactText(bodyText, 240)}`);
+  }
+
+  if (!/json/i.test(contentType)) {
+    const htmlHint = /<!doctype|<html/i.test(bodyText)
+      ? "Image model returned HTML instead of JSON."
+      : "Image model returned non-JSON content.";
+    throw new Error(`${htmlHint} Check that the base URL points to an OpenAI-compatible /v1 API. Endpoint: ${endpoint}. Body: ${compactText(bodyText, 180)}`);
+  }
+
+  try {
+    return JSON.parse(bodyText) as Record<string, unknown>;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Image model returned invalid JSON: ${message}. Body: ${compactText(bodyText, 180)}`);
+  }
+}
+
+export function createOpenAICompatibleImageProvider(options: OpenAICompatibleOptions & {
+  outputDir?: string;
+  requestTimeoutMs?: number;
+}): ImageProvider {
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const endpoint = responsesEndpoint(options.baseUrl);
+  const generationsEndpoint = imageGenerationsEndpoint(options.baseUrl);
+  const defaultOutputDir = options.outputDir ?? path.resolve("workspace", "assets");
+  const requestTimeoutMs = options.requestTimeoutMs ?? 180_000;
+
+  return {
+    async planPrompt(draft: PlatformDraft, asset: MediaAsset): Promise<MediaAsset> {
+      const prompt = imagePromptForDraft(draft, asset);
+      const responsesRequest = {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {})
+        },
+        body: JSON.stringify({
+          model: options.model,
+          input: prompt,
+          tools: [{ type: "image_generation" }]
+        })
+      } satisfies RequestInit;
+      let payload: Record<string, unknown>;
+      let base64Image: string | undefined;
+      let imageUrl: string | undefined;
+      try {
+        const response = await fetchWithTimeout(fetchImpl, endpoint, responsesRequest, requestTimeoutMs);
+        payload = await readImageResponse(response, endpoint);
+        base64Image = readResponsesImageBase64(payload);
+        imageUrl = readImageUrl(payload);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        if (!/images\/generations/i.test(message)) throw error;
+        const fallbackResponse = await fetchWithTimeout(fetchImpl, generationsEndpoint, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            ...(options.apiKey ? { authorization: `Bearer ${options.apiKey}` } : {})
+          },
+          body: JSON.stringify({
+            model: options.model,
+            prompt,
+            n: 1,
+            size: imageGenerationSize(asset)
+          })
+        }, requestTimeoutMs);
+        payload = await readImageResponse(fallbackResponse, generationsEndpoint);
+        base64Image = readResponsesImageBase64(payload);
+        imageUrl = readImageUrl(payload);
+      }
+      if (!base64Image) {
+        if (!imageUrl) {
+          throw new Error(`Image model response did not include image data. Body: ${compactText(JSON.stringify(payload), 240)}`);
+        }
+        const downloaded = await fetchWithTimeout(fetchImpl, imageUrl, {}, requestTimeoutMs);
+        if (!downloaded.ok) throw new Error(`Generated image download failed: HTTP ${downloaded.status} ${downloaded.statusText}`);
+        base64Image = Buffer.from(await downloaded.arrayBuffer()).toString("base64");
+      }
+
+      const mimeType = typeof payload.output_mime_type === "string" ? payload.output_mime_type : "image/png";
+      const outputDir = typeof asset.metadata?.outputDir === "string" ? asset.metadata.outputDir : defaultOutputDir;
+      await mkdir(outputDir, { recursive: true });
+      const filename = `${asset.filename ?? asset.id}${imageFileExtension(mimeType)}`;
+      const artifactPath = path.join(outputDir, filename);
+      await writeFile(artifactPath, Buffer.from(base64Image, "base64"));
+
+      return {
+        ...asset,
+        source: "generated",
+        path: artifactPath,
+        prompt
       };
     }
   };
@@ -273,7 +502,7 @@ function readSummaryJson(content: string): Omit<ArticleSummary, "sourceItemId"> 
 
 export function createOpenAICompatibleTextProvider(options: OpenAICompatibleOptions): TextProvider {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = `${options.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const endpoint = chatCompletionsEndpoint(options.baseUrl);
 
   return {
     async summarize(article: VerifiedArticle, selection: CandidateSelection): Promise<ArticleSummary> {
@@ -313,11 +542,9 @@ export function createOpenAICompatibleTextProvider(options: OpenAICompatibleOpti
         })
       });
 
-      if (!response.ok) throw new Error(`Text provider failed: ${response.status} ${response.statusText}`);
-
-      const payload = await response.json() as ChatCompletionResponse;
+      const payload = await readChatCompletionResponse(response, "文本模型", endpoint);
       const content = payload.choices?.[0]?.message?.content;
-      if (!content) throw new Error("Text provider failed: missing assistant content.");
+      if (!content) throw new Error("文本模型调用失败：响应中缺少 assistant content。");
 
       return {
         sourceItemId: article.sourceItemId,
@@ -349,7 +576,7 @@ function readSelectionJson(content: string, article: VerifiedArticle): Candidate
 
 export function createOpenAICompatibleSelector(options: OpenAICompatibleOptions): Selector {
   const fetchImpl = options.fetchImpl ?? fetch;
-  const endpoint = `${options.baseUrl.replace(/\/$/, "")}/chat/completions`;
+  const endpoint = chatCompletionsEndpoint(options.baseUrl);
 
   return {
     async score(article: VerifiedArticle): Promise<CandidateSelection> {
@@ -389,11 +616,9 @@ export function createOpenAICompatibleSelector(options: OpenAICompatibleOptions)
         })
       });
 
-      if (!response.ok) throw new Error(`Selector provider failed: ${response.status} ${response.statusText}`);
-
-      const payload = await response.json() as ChatCompletionResponse;
+      const payload = await readChatCompletionResponse(response, "热点筛选模型", endpoint);
       const content = payload.choices?.[0]?.message?.content;
-      if (!content) throw new Error("Selector provider failed: missing assistant content.");
+      if (!content) throw new Error("热点筛选模型调用失败：响应中缺少 assistant content。");
       return readSelectionJson(content, article);
     },
     selectTopN(selections: CandidateSelection[], limit: number): CandidateSelection[] {

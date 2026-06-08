@@ -5,6 +5,7 @@ import {
   createBrowserActFullTextProvider,
   createDefaultTextProvider,
   createHttpFullTextProvider,
+  createOpenAICompatibleImageProvider,
   createPromptOnlyImageProvider,
   createOpenAICompatibleSelector,
   createOpenAICompatibleTextProvider
@@ -50,7 +51,14 @@ export function createRuntimeProviders(
 
   const useImageProvider = env.TRENDFORGE_IMAGE_PROVIDER === "openai-compatible"
     || localImageModelConfig?.enabled === true && localImageModelConfig.provider === "openai-compatible" && Boolean(localImageModelConfig.apiKey);
-  const mediaComposer = createDefaultMediaComposer(useImageProvider ? createPromptOnlyImageProvider() : undefined);
+  const imageProvider = useImageProvider
+    ? createOpenAICompatibleImageProvider({
+      baseUrl: env.TRENDFORGE_IMAGE_BASE_URL ?? localImageModelConfig?.baseUrl ?? "https://api.openai.com/v1",
+      apiKey: env.TRENDFORGE_IMAGE_API_KEY ?? localImageModelConfig?.apiKey,
+      model: env.TRENDFORGE_IMAGE_MODEL ?? localImageModelConfig?.model ?? "gpt-image-1"
+    })
+    : env.TRENDFORGE_IMAGE_PROVIDER === "prompt-only" ? createPromptOnlyImageProvider() : undefined;
+  const mediaComposer = createDefaultMediaComposer(imageProvider);
 
   return { fullTextProvider, textProvider, selector, mediaComposer };
 }

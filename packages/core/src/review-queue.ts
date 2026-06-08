@@ -11,8 +11,10 @@ function safeArray<T>(value: T[] | undefined): T[] {
 export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
   const createdAt = result.finishedAt;
   const queue: ReviewQueueItem[] = [];
+  const candidateIds = new Set(safeArray(result.candidateReviews).map((candidate) => candidate.sourceItemId));
 
   for (const error of safeArray(result.errors)) {
+    if (error.stage.startsWith("select:")) continue;
     queue.push({
       id: `${result.runId}:pipeline:${error.stage}`,
       runId: result.runId,
@@ -27,6 +29,7 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
   }
 
   for (const article of safeArray(result.verifiedArticles)) {
+    if (!candidateIds.has(article.sourceItemId)) continue;
     if (article.status === "failed" || !article.fullText?.trim()) {
       queue.push({
         id: `${result.runId}:original-text:${article.sourceItemId}`,

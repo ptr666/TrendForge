@@ -119,6 +119,8 @@ code {
   grid-template-columns: 18rem minmax(0, 1fr);
   gap: 1.2rem;
   min-height: 100dvh;
+  min-width: 0;
+  width: 100%;
   padding: 1rem;
 }
 
@@ -192,6 +194,7 @@ nav span {
 .workspace {
   display: grid;
   gap: 1rem;
+  min-width: 0;
 }
 
 .hero,
@@ -202,6 +205,7 @@ nav span {
   border-radius: 32px;
   background: var(--surface);
   box-shadow: var(--shadow);
+  min-width: 0;
 }
 
 .hero {
@@ -227,9 +231,9 @@ nav span {
 .hero h2 {
   max-width: 58rem;
   margin: 0;
-  font-size: clamp(2rem, 5vw, 5rem);
-  line-height: 0.95;
-  letter-spacing: -0.06em;
+  font-size: clamp(2rem, 3.8vw, 3.6rem);
+  line-height: 1.08;
+  letter-spacing: -0.04em;
 }
 
 .hero-actions {
@@ -267,7 +271,7 @@ nav span {
   margin: 0 0 0.55rem;
   text-transform: uppercase;
   letter-spacing: 0.16em;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 900;
 }
 
@@ -414,7 +418,7 @@ nav span {
 
 .timeline small {
   color: inherit;
-  font-size: 0.62rem;
+  font-size: 0.76rem;
   opacity: 0.76;
 }
 
@@ -464,7 +468,8 @@ nav span {
 .helper {
   margin: 0;
   color: var(--muted);
-  font-size: 0.86rem;
+  font-size: 0.94rem;
+  line-height: 1.55;
 }
 
 .queue-card {
@@ -728,6 +733,172 @@ nav span {
   padding: 0.25rem 0.55rem;
   font-size: 0.76rem;
   font-weight: 800;
+}
+
+.draft-workbench {
+  align-items: start;
+  display: grid;
+  gap: 18px;
+  grid-template-columns: minmax(190px, 0.75fr) minmax(0, 2.2fr) minmax(220px, 0.9fr);
+}
+
+.draft-control-rail,
+.asset-inspector {
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+  box-shadow: var(--shadow-soft);
+  padding: 16px;
+  position: sticky;
+  top: 18px;
+}
+
+.toggle-row.vertical {
+  align-items: stretch;
+  display: grid;
+}
+
+.real-draft-toggle {
+  display: block;
+  margin: 12px 0;
+}
+
+.draft-preview-stage {
+  display: grid;
+  gap: 18px;
+  min-width: 0;
+}
+
+.candidate-draft-section {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  padding: 18px;
+}
+
+.candidate-draft-section > header {
+  margin-bottom: 14px;
+}
+
+.platform-preview-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+}
+
+.draft-card-title span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+}
+
+.draft-card-title h4 {
+  margin: 4px 0 12px;
+}
+
+.wechat-article-preview,
+.xhs-phone-preview {
+  background: #fffdf7;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  overflow: hidden;
+}
+
+.wechat-article-preview > img,
+.image-placeholder {
+  aspect-ratio: 16 / 9;
+  background: linear-gradient(135deg, #e8f0df, #f9e7c2);
+  display: grid;
+  min-height: 150px;
+  object-fit: cover;
+  place-items: center;
+  width: 100%;
+}
+
+.wechat-preview-body {
+  padding: 16px;
+}
+
+.wechat-preview-body .digest {
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.inline-image-row {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.inline-image-row img {
+  border-radius: 14px;
+  width: 100%;
+}
+
+.xhs-phone-preview {
+  background: #fff;
+  border-radius: 28px;
+  box-shadow: inset 0 0 0 8px #1f241f;
+  padding: 14px;
+}
+
+.xhs-image-strip {
+  display: grid;
+  gap: 10px;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(170px, 1fr);
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.xhs-image-strip img,
+.xhs-image-strip .image-placeholder {
+  aspect-ratio: 3 / 4;
+  border-radius: 20px;
+  min-height: 220px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.xhs-phone-preview h3 {
+  font-size: 18px;
+  margin: 10px 4px;
+}
+
+.asset-inspector {
+  display: grid;
+  gap: 12px;
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+}
+
+.asset-preview-card {
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+}
+
+.asset-preview-card img {
+  aspect-ratio: 16 / 9;
+  border-radius: 14px;
+  object-fit: cover;
+  width: 100%;
+}
+
+.asset-preview-card.blocked {
+  border-color: rgba(191, 87, 63, 0.45);
+}
+
+.asset-preview-card details p {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.6;
+  word-break: break-word;
 }
 
 .analysis-control-grid,
@@ -1084,8 +1255,26 @@ nav span {
   min-height: 2rem;
   border-radius: 999px;
   padding: 0.35rem 0.7rem;
-  font-size: 0.78rem;
+  font-size: 0.82rem;
   font-weight: 900;
+}
+
+.advanced-settings {
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.45);
+  padding: 0.75rem 0.85rem;
+}
+
+.advanced-settings summary {
+  cursor: pointer;
+  color: var(--accent-strong);
+  font-weight: 900;
+}
+
+.advanced-settings[open] {
+  display: grid;
+  gap: 0.75rem;
 }
 
 .pill.success,
@@ -1204,6 +1393,11 @@ nav span {
 .task-progress.failed {
   border-color: rgba(180, 35, 24, 0.32);
   background: rgba(255, 244, 242, 0.72);
+}
+
+.task-progress.partial {
+  border-color: rgba(255, 183, 77, 0.45);
+  background: rgba(255, 248, 232, 0.82);
 }
 
 .progress-metrics {
@@ -1331,11 +1525,54 @@ nav span {
   .sidebar {
     position: static;
     min-height: auto;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow: hidden;
+    padding: 0.9rem;
+  }
+
+  .brand {
+    margin-bottom: 0.8rem;
+  }
+
+  .brand-mark {
+    width: 2.65rem;
+    height: 2.65rem;
+    border-radius: 18px;
+  }
+
+  .brand h1 {
+    font-size: 1.55rem;
+  }
+
+  nav {
+    display: flex;
+    gap: 0.45rem;
+    min-width: 0;
+    width: 100%;
+    max-width: 100%;
+    overflow-x: auto;
+    padding-bottom: 0.25rem;
+    scroll-snap-type: x proximity;
+  }
+
+  nav a {
+    flex: 0 0 auto;
+    min-height: 2.7rem;
+    padding: 0.65rem 0.85rem;
+    white-space: nowrap;
+    scroll-snap-align: start;
   }
 
   .hero,
   .section-title {
     flex-direction: column;
+  }
+
+  .hero h2 {
+    font-size: clamp(2rem, 8vw, 2.75rem);
+    line-height: 1.06;
   }
 
   .timeline {
@@ -1361,6 +1598,20 @@ nav span {
 
   .queue-actions {
     justify-content: flex-start;
+  }
+
+  .draft-workbench {
+    grid-template-columns: 1fr;
+  }
+
+  .draft-control-rail,
+  .asset-inspector {
+    max-height: none;
+    position: static;
+  }
+
+  .platform-preview-grid {
+    grid-template-columns: 1fr;
   }
 }
 

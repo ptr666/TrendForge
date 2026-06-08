@@ -17,7 +17,7 @@ import type {
   TaskProgress,
   VerificationResult
 } from "../types.js";
-import { api } from "../api.js";
+import { api, apiBase } from "../api.js";
 import { ActionFeedback, ArtifactContentPreview, displayLabel, MarkdownPreview, RawJsonDetails, StatusPill } from "./ui.js";
 
 export const platformOptions: Platform[] = ["review", "wechat", "xhs"];
@@ -51,18 +51,98 @@ function itemSummary(item: Record<string, unknown>): string {
 }
 
 function artifactLabel(pathValue: string): string {
-  if (pathValue.includes("publisher-handoffs")) return "打开 publisher handoff";
-  if (pathValue.includes("full-text")) return "打开原文 Markdown";
-  return "打开 Markdown 产物";
+  if (pathValue.includes("publisher-handoffs")) return "打开平台交接信息";
+  if (pathValue.includes("full-text")) return "打开原文";
+  return "打开草稿";
 }
 
 function publishArtifactPaths(run?: PipelineRun, draftId?: string): Array<{ label: string; path: string }> {
   return (run?.publishResults ?? [])
     .filter((result) => asString(result.draftId) === draftId && asString(result.artifactPath))
     .map((result) => ({
-      label: `${displayLabel(asString(result.platform))} handoff`,
+      label: `${displayLabel(asString(result.platform))}交接信息`,
       path: asString(result.artifactPath)
     }));
+}
+
+type DraftAsset = PipelineRun["assets"][number];
+type DraftItem = PipelineRun["drafts"][number];
+
+function assetImageUrl(runId: string | undefined, asset: DraftAsset): string | undefined {
+  if (!runId || !asset.path || asset.status === "blocked") return undefined;
+  return `${apiBase}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(asset.id)}/file?rev=${asset.revision ?? 1}`;
+}
+
+function draftAssets(run: PipelineRun | undefined, draft: DraftItem): DraftAsset[] {
+  return (run?.assets ?? []).filter((asset) => draft.assetIds?.includes(asset.id) || asset.draftId === draft.id);
+}
+
+function coverAsset(assets: DraftAsset[]): DraftAsset | undefined {
+  return assets.find((asset) => asset.type === "cover");
+}
+
+function contentAssets(assets: DraftAsset[]): DraftAsset[] {
+  return assets.filter((asset) => asset.type !== "cover");
+}
+
+function draftPreviewText(draft: DraftItem): string {
+  return draft.body ?? draft.digest ?? "暂无预览。";
+}
+
+function PlatformArticlePreview({ run, draft, assets }: { run?: PipelineRun; draft: DraftItem; assets: DraftAsset[] }) {
+  const cover = coverAsset(assets);
+  const contentImages = contentAssets(assets);
+  const coverUrl = cover ? assetImageUrl(run?.runId, cover) : undefined;
+  if (draft.platform === "wechat") {
+    return (
+      <div className="wechat-article-preview">
+        {coverUrl ? <img src={coverUrl} alt={cover?.altText ?? draft.title} /> : <div className="image-placeholder">微信封面图等待生成</div>}
+        <div className="wechat-preview-body">
+          <h3>{draft.title}</h3>
+          {draft.digest && <p className="digest">{draft.digest}</p>}
+          <MarkdownPreview compact content={draftPreviewText(draft)} />
+          <div className="inline-image-row">
+            {contentImages.map((asset) => {
+              const url = assetImageUrl(run?.runId, asset);
+              return url ? <img key={asset.id} src={url} alt={asset.altText ?? asset.id} /> : <div key={asset.id} className="image-placeholder">{displayLabel(asset.status ?? "planned")}</div>;
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  }
+  if (draft.platform === "xhs") {
+    const images = [cover, ...contentImages].filter(Boolean) as DraftAsset[];
+    return (
+      <div className="xhs-phone-preview">
+        <div className="xhs-image-strip">
+          {images.length === 0 && <div className="image-placeholder">小红书图文卡等待生成</div>}
+          {images.map((asset) => {
+            const url = assetImageUrl(run?.runId, asset);
+            return url ? <img key={asset.id} src={url} alt={asset.altText ?? asset.id} /> : <div key={asset.id} className="image-placeholder">{displayLabel(asset.status ?? "planned")}</div>;
+          })}
+        </div>
+        <h3>{draft.title}</h3>
+        <MarkdownPreview compact content={draftPreviewText(draft)} />
+      </div>
+    );
+  }
+  return <MarkdownPreview compact content={draftPreviewText(draft)} />;
+}
+
+function friendlyHealthMessage(message?: string): string {
+  if (!message) return "等待最新日报状态。";
+  const sourceMatch = message.match(/Validated\s+(\d+)\s+source items/i);
+  if (sourceMatch) return `已获取 ${sourceMatch[1]} 条热点信息。`;
+  return message;
+}
+
+function friendlyPublisherMessage(platform: "wechat" | "xhs", message?: string): string {
+  if (!message) return platform === "wechat" ? "尚未检查微信草稿箱连接。" : "尚未检查小红书草稿连接。";
+  if (/credentials.*token.*cover image upload.*ready/i.test(message)) return "微信草稿箱已就绪，可以在确认后创建草稿。";
+  if (/requires XHS config enabled=true/i.test(message)) return "小红书草稿连接尚未启用，请到配置区完成登录和扩展检查。";
+  if (/enabled=true.*appId.*appSecret/i.test(message)) return "微信草稿箱尚未就绪，请先保存 AppID、AppSecret 并完成连接检查。";
+  return message;
 }
 
 function formatElapsed(ms: number): string {
@@ -79,7 +159,9 @@ function latestFailure(events: Array<Record<string, unknown>>): string {
 
 export function TaskProgressPanel({ progress, events }: { progress?: TaskProgress; events?: Array<Record<string, unknown>> }) {
   if (!progress) return null;
-  const failureReason = progress.failureReason || latestFailure(events ?? []);
+  const issueReason = progress.status === "failed" ? progress.failureReason : progress.failureReason || latestFailure(events ?? []);
+  const issueLabel = progress.status === "failed" ? "失败原因" : "处理提醒";
+  const pillState = progress.status === "failed" ? "error" : progress.status === "partial" ? "warn" : progress.status === "success" ? "success" : "loading";
   return (
     <article className={`task-progress ${progress.status}`}>
       <div className="section-title compact">
@@ -87,14 +169,14 @@ export function TaskProgressPanel({ progress, events }: { progress?: TaskProgres
           <p className="eyebrow">长任务进度</p>
           <h3>{progress.title}</h3>
         </div>
-        <StatusPill state={progress.status === "failed" ? "error" : progress.status === "success" ? "success" : "loading"} label={progress.status} />
+        <StatusPill state={pillState} label={progress.status} />
       </div>
       <div className="progress-metrics">
         <span><strong>{displayLabel(progress.currentStage)}</strong>当前阶段</span>
         <span><strong>{progress.processedCount}</strong>已处理数量</span>
         <span><strong>{formatElapsed(progress.elapsedMs)}</strong>耗时</span>
       </div>
-      {failureReason && <p className="risk-note">失败原因：{failureReason}</p>}
+      {issueReason && <p className="risk-note">{issueLabel}：{issueReason}</p>}
       <RawJsonDetails data={events} label="查看阶段事件" />
     </article>
   );
@@ -193,22 +275,22 @@ export function StatusGrid({
     <section className="grid status-grid">
       <article className="card">
         <h3>AIHot</h3>
-        <p>{aiHotLatest?.health.message ?? "等待最新日报状态。"}</p>
+        <p>{friendlyHealthMessage(aiHotLatest?.health.message)}</p>
         <StatusPill state={sourceStatusState(aiHotLatest?.health.status)} label={aiHotLatest?.health.status ?? "loading"} />
       </article>
       <article className="card">
         <h3>文本模型</h3>
-        <p>{modelConfig.enabled ? `${modelConfig.model} 已启用` : "未启用真实模型时只生成确定性中文占位。"}</p>
-        <StatusPill state={modelConfig.keyConfigured || modelConfig.provider === "deterministic"} label={modelConfig.provider} />
+        <p>{modelConfig.enabled ? `${modelConfig.model || "文本模型"} 已启用。` : "未启用真实模型时，只生成本地占位总结。"}</p>
+        <StatusPill state={modelConfig.keyConfigured || modelConfig.provider === "deterministic"} label={modelConfig.enabled ? "已启用" : "本地模式"} />
       </article>
       <article className="card">
         <h3>原文获取</h3>
-        <p>默认 HTTP 抓取；BrowserAct 和 MediaCrawler 只在显式启用时作为 fallback。</p>
-        <StatusPill state="success" label={providers.browserAct?.enabled ? "browseract" : "http"} />
+        <p>默认从原文链接抓取正文；需要时可启用浏览器或采集器补全。</p>
+        <StatusPill state="success" label={providers.browserAct?.enabled ? "浏览器补全已启用" : "链接抓取就绪"} />
       </article>
       <article className="card">
         <h3>平台交接</h3>
-        <p>微信：{wechatHealth?.gate?.message ?? "未检查"} / 小红书：{xhsHealth?.gate?.message ?? "未检查"}</p>
+        <p>微信：{friendlyPublisherMessage("wechat", wechatHealth?.gate?.message)} / 小红书：{friendlyPublisherMessage("xhs", xhsHealth?.gate?.message)}</p>
         <StatusPill state={queueMetrics.blocked > 0 ? "error" : reviewQueue.length > 0 ? "loading" : "success"} label={`${queueMetrics.blocked} 个阻塞`} />
       </article>
     </section>
@@ -361,8 +443,8 @@ export function ScreenPanel({
         </label>
       </div>
       <div className="toggle-row">
-        <label><span><input type="checkbox" checked={runSettings.allowBrowserFallback} onChange={(event) => setRunSettings({ ...runSettings, allowBrowserFallback: event.target.checked })} /> 允许后端 BrowserAct fallback</span></label>
-        <label><span><input type="checkbox" checked={runSettings.allowMediaCrawlerFallback} onChange={(event) => setRunSettings({ ...runSettings, allowMediaCrawlerFallback: event.target.checked })} /> 允许 MediaCrawler fallback</span></label>
+        <label><span><input type="checkbox" checked={runSettings.allowBrowserFallback} onChange={(event) => setRunSettings({ ...runSettings, allowBrowserFallback: event.target.checked })} /> 原文抓取失败时，允许使用浏览器补全</span></label>
+        <label><span><input type="checkbox" checked={runSettings.allowMediaCrawlerFallback} onChange={(event) => setRunSettings({ ...runSettings, allowMediaCrawlerFallback: event.target.checked })} /> 允许使用采集器补全原文</span></label>
       </div>
       <div className="timeline">
         {stages.map((stage) => <span className={stageStatus(runEvents, stage)} key={stage}>{displayLabel(stage)}<small>{displayLabel(stageStatus(runEvents, stage))}</small></span>)}
@@ -483,7 +565,7 @@ export function DraftPreviewGrid({
         <div>
           <p className="eyebrow">草稿生成</p>
           <h2>只为已勾选候选生成评审稿、微信公众号和小红书草稿。</h2>
-          <p className="helper">默认 dry-run，只生成本地 Markdown 与 publisher handoff。图片生成模型未单独配置时，不会自动规划或申请图片生成。</p>
+        <p className="helper">默认只生成本地草稿。确认内容后，再单独推进微信或小红书草稿箱；图片模型未配置时不会申请图片生成。</p>
         </div>
         <button disabled={busy === "drafts" || !run || selectedCandidateIds.length === 0} onClick={generateDrafts}>生成草稿</button>
       </div>
@@ -495,7 +577,7 @@ export function DraftPreviewGrid({
       </div>
       <div className="handoff-guide">
         <strong>平台推进路径</strong>
-        <p>评审稿只用于人工审阅；微信公众号和小红书草稿卡片会生成 Markdown 产物和 publisher handoff。若要真实创建平台草稿，请先在配置区通过对应 gate，再勾选“推进真实平台草稿”并重新点击“生成草稿”。</p>
+        <p>评审稿用于人工审阅；微信公众号和小红书草稿会先生成本地预览。确认内容后，再推进平台交接或真实草稿箱创建。</p>
       </div>
       <TaskProgressPanel progress={taskProgress} />
       <div className="draft-grid">
@@ -517,7 +599,7 @@ export function DraftPreviewGrid({
               </div>
               {publish && <small>平台交接：{displayLabel(asString(publish.status))} / {asString(publish.message) || asString(publish.verificationSignal) || "已生成交接信息"}</small>}
               <div className="action-row">
-                {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}：${draft.title}`)}>{draft.platform === "review" ? "评审稿预览" : "打开 Markdown 产物"}</button>}
+                {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}：${draft.title}`)}>{draft.platform === "review" ? "评审稿预览" : "打开草稿预览"}</button>}
                 {handoffs.map((handoff) => <button type="button" key={handoff.path} onClick={() => loadArtifact(handoff.path, handoff.label)}>{handoff.label}</button>)}
               </div>
               <RawJsonDetails data={{ draft, assets, publish }} />
@@ -603,7 +685,7 @@ export function HistoryPanel({
       .map((draft) => ({ label: `${displayLabel(draft.platform)} 草稿`, path: draft.artifactPath ?? "" })),
     ...(selectedRun?.publishResults ?? [])
       .filter((result) => typeof result.artifactPath === "string")
-      .map((result) => ({ label: `${displayLabel(asString(result.platform))} handoff`, path: asString(result.artifactPath) }))
+      .map((result) => ({ label: `${displayLabel(asString(result.platform))}交接信息`, path: asString(result.artifactPath) }))
   ];
   return (
     <section className="panel" id="history">
@@ -611,13 +693,17 @@ export function HistoryPanel({
         <div>
           <p className="eyebrow">运行历史</p>
           <h2>恢复、删除或清空历史运行。</h2>
-          <p className="helper">当前历史目录：{runsDir ?? "未知"}；共 {runs.length} 条记录。</p>
+          <p className="helper">共 {runs.length} 条记录。历史目录等诊断信息可在下方展开查看。</p>
+          <details className="advanced-settings">
+            <summary>查看历史存储位置</summary>
+            <p className="helper">{runsDir ?? "未知"}</p>
+          </details>
         </div>
         <button type="button" disabled={runs.length === 0} onClick={clearRuns}>清空全部</button>
       </div>
       <div className="history-layout">
         <div className="subscription-list">
-          {runs.length === 0 && <p className="helper">暂无运行历史。若确认之前运行过，请检查启动脚本使用的 runsDir 是否一致。</p>}
+          {runs.length === 0 && <p className="helper">暂无运行历史。若确认之前运行过，请展开查看历史存储位置是否一致。</p>}
           {runs.slice(0, 12).map((run) => (
             <div className="history-row" key={run.runId}>
               <button className="list-row clickable" onClick={() => loadRun(run.runId)}>
@@ -706,22 +792,22 @@ export function ConfigPanel({
       <div className="section-title">
         <div>
           <p className="eyebrow">配置</p>
-          <h2>模型、平台 gate 与当前来源策略。</h2>
-          <p className="helper">中文译文和高质量中文总结依赖真实 OpenAI-compatible 文本模型。图片生成模型需要单独配置，当前默认不申请图片生成。</p>
+          <h2>连接模型和发布平台。</h2>
+          <p className="helper">先配置文本模型，再按需连接微信公众号、小红书和图片模型。密钥只保存在本地配置中，页面只显示脱敏状态。</p>
         </div>
       </div>
       <div className="settings-grid">
         <article className="settings-card">
           <div className="section-title compact">
-            <h3>OpenAI-compatible 文本模型</h3>
+            <h3>文本模型服务</h3>
             <button onClick={() => void saveModelConfig()}>保存模型</button>
           </div>
-          <label><span><input type="checkbox" checked={modelConfig.enabled} onChange={(event) => setModelConfig({ ...modelConfig, enabled: event.target.checked })} /> 启用真实文本模型 provider</span></label>
-          <label>Provider<select value={modelConfig.provider} onChange={(event) => setModelConfig({ ...modelConfig, provider: event.target.value as PublicModelConfig["provider"] })}><option value="deterministic">deterministic</option><option value="openai-compatible">openai-compatible</option></select></label>
-          <label>Base URL<input value={modelConfig.baseUrl} onChange={(event) => setModelConfig({ ...modelConfig, baseUrl: event.target.value })} /></label>
+          <label><span><input type="checkbox" checked={modelConfig.enabled} onChange={(event) => setModelConfig({ ...modelConfig, enabled: event.target.checked })} /> 启用真实文本模型</span></label>
+          <label>模型服务<select value={modelConfig.provider} onChange={(event) => setModelConfig({ ...modelConfig, provider: event.target.value as PublicModelConfig["provider"] })}><option value="deterministic">本地占位模式</option><option value="openai-compatible">OpenAI-compatible 接口</option></select></label>
+          <label>服务地址<input value={modelConfig.baseUrl} onChange={(event) => setModelConfig({ ...modelConfig, baseUrl: event.target.value })} /></label>
           <label>模型名称<input value={modelConfig.model} onChange={(event) => setModelConfig({ ...modelConfig, model: event.target.value })} /></label>
-          <label>API key<input type="password" value={modelApiKey} placeholder={modelConfig.keyPreview ?? "新的 API key"} onChange={(event) => setModelApiKey(event.target.value)} /></label>
-          <button disabled={busy === "model"} onClick={() => runAction("model", () => api("/verify/model", { method: "POST" }))}>测试模型请求</button>
+          <label>接口密钥<input type="password" value={modelApiKey} placeholder={modelConfig.keyPreview ?? "新的接口密钥"} onChange={(event) => setModelApiKey(event.target.value)} /></label>
+          <button disabled={busy === "model"} onClick={() => runAction("model", () => api("/verify/model", { method: "POST" }))}>测试文本模型</button>
           <ActionFeedback title="模型测试" result={results.model} />
         </article>
 
@@ -730,12 +816,12 @@ export function ConfigPanel({
             <h3>图片生成模型</h3>
             <button onClick={() => void saveImageModelConfig()}>保存图片模型</button>
           </div>
-          <p className="helper">图片模型是独立配置。启用并配置 key 后，草稿生成会为微信公众号封面和小红书图文生成提示词与待审批资产；未配置时不会申请图片生成。</p>
-          <label><span><input type="checkbox" checked={imageModelConfig.enabled} onChange={(event) => setImageModelConfig({ ...imageModelConfig, enabled: event.target.checked })} /> 启用图片模型 provider</span></label>
-          <label>Provider<select value={imageModelConfig.provider} onChange={(event) => setImageModelConfig({ ...imageModelConfig, provider: event.target.value as PublicImageModelConfig["provider"] })}><option value="none">none</option><option value="openai-compatible">openai-compatible</option></select></label>
-          <label>Base URL<input value={imageModelConfig.baseUrl} onChange={(event) => setImageModelConfig({ ...imageModelConfig, baseUrl: event.target.value })} /></label>
+          <p className="helper">图片模型单独配置。未启用时不会生成封面或图文图片，也不会进入图片审批。</p>
+          <label><span><input type="checkbox" checked={imageModelConfig.enabled} onChange={(event) => setImageModelConfig({ ...imageModelConfig, enabled: event.target.checked })} /> 启用图片模型</span></label>
+          <label>模型服务<select value={imageModelConfig.provider} onChange={(event) => setImageModelConfig({ ...imageModelConfig, provider: event.target.value as PublicImageModelConfig["provider"] })}><option value="none">不使用图片模型</option><option value="openai-compatible">OpenAI-compatible 接口</option></select></label>
+          <label>服务地址<input value={imageModelConfig.baseUrl} onChange={(event) => setImageModelConfig({ ...imageModelConfig, baseUrl: event.target.value })} /></label>
           <label>模型名称<input value={imageModelConfig.model} onChange={(event) => setImageModelConfig({ ...imageModelConfig, model: event.target.value })} /></label>
-          <label>API key<input type="password" value={imageModelApiKey} placeholder={imageModelConfig.keyPreview ?? "新的图片模型 API key"} onChange={(event) => setImageModelApiKey(event.target.value)} /></label>
+          <label>接口密钥<input type="password" value={imageModelApiKey} placeholder={imageModelConfig.keyPreview ?? "新的图片模型密钥"} onChange={(event) => setImageModelApiKey(event.target.value)} /></label>
           <ActionFeedback title="图片模型配置" result={results.imageModel} />
         </article>
 
@@ -744,14 +830,17 @@ export function ConfigPanel({
             <h3>微信公众号</h3>
             <button onClick={() => void saveWechatConfig()}>保存微信</button>
           </div>
-          <label><span><input type="checkbox" checked={wechatConfig.enabled} onChange={(event) => setWechatConfig({ ...wechatConfig, enabled: event.target.checked })} /> 启用微信 API</span></label>
+          <label><span><input type="checkbox" checked={wechatConfig.enabled} onChange={(event) => setWechatConfig({ ...wechatConfig, enabled: event.target.checked })} /> 启用微信公众号草稿箱连接</span></label>
           <label>App ID<input value={wechatConfig.appId} onChange={(event) => setWechatConfig({ ...wechatConfig, appId: event.target.value })} /></label>
           <label>App Secret<input type="password" value={wechatSecret} placeholder={wechatConfig.secretPreview ?? "新的 app secret"} onChange={(event) => setWechatSecret(event.target.value)} /></label>
-          <label>封面 media ID<input value={wechatConfig.coverMediaId ?? ""} onChange={(event) => setWechatConfig({ ...wechatConfig, coverMediaId: event.target.value })} /></label>
-          <label>本地封面路径<input value={wechatConfig.coverImagePath ?? ""} placeholder="例如 workspace/assets/wechat-cover.png" onChange={(event) => setWechatConfig({ ...wechatConfig, coverImagePath: event.target.value })} /></label>
-          <label>legacy 凭据脚本<input value={wechatConfig.legacyCredentialSource ?? ""} placeholder="例如 scripts/wechat-credentials.js" onChange={(event) => setWechatConfig({ ...wechatConfig, legacyCredentialSource: event.target.value })} /></label>
-          <p className="helper">真实创建公众号草稿至少需要 AppID、AppSecret、IP 白名单，并提供封面 media ID 或本地封面路径。若提供本地封面路径，后端会用永久素材接口上传封面并取得 thumb_media_id；正文图片会通过 /cgi-bin/media/uploadimg 转存到微信图床。legacy 凭据脚本兼容微信 workflow 中的 APPID/APPSECRET 读取方式。</p>
-          <button disabled={busy === "wechat"} onClick={() => runAction("wechat", () => api("/verify/wechat", { method: "POST" }))}>检查微信联通与上传 gate</button>
+          <details className="advanced-settings">
+            <summary>封面和高级凭据设置</summary>
+            <label>封面 media ID<input value={wechatConfig.coverMediaId ?? ""} onChange={(event) => setWechatConfig({ ...wechatConfig, coverMediaId: event.target.value })} /></label>
+            <label>本地封面路径<input value={wechatConfig.coverImagePath ?? ""} placeholder="例如 workspace/assets/wechat-cover.png" onChange={(event) => setWechatConfig({ ...wechatConfig, coverImagePath: event.target.value })} /></label>
+            <label>本地凭据脚本<input value={wechatConfig.legacyCredentialSource ?? ""} placeholder="例如 scripts/wechat-credentials.js" onChange={(event) => setWechatConfig({ ...wechatConfig, legacyCredentialSource: event.target.value })} /></label>
+          </details>
+          <p className="helper">真实创建公众号草稿需要 AppID、AppSecret、IP 白名单，以及可用封面。系统会先检查连接，确认后才会创建草稿箱内容。</p>
+          <button disabled={busy === "wechat"} onClick={() => runAction("wechat", () => api("/verify/wechat", { method: "POST" }))}>检查微信连接</button>
           <ActionFeedback title="微信请求" result={results.wechat} />
         </article>
 
@@ -760,18 +849,21 @@ export function ConfigPanel({
             <h3>小红书浏览器草稿</h3>
             <button onClick={() => void saveXhsConfig()}>保存小红书</button>
           </div>
-          <label><span><input type="checkbox" checked={xhsConfig.enabled} onChange={(event) => setXhsConfig({ ...xhsConfig, enabled: event.target.checked })} /> 启用真实小红书 gate</span></label>
-          <label>xiaohongshu-skills 目录<input value={xhsConfig.projectDir} onChange={(event) => setXhsConfig({ ...xhsConfig, projectDir: event.target.value })} /></label>
-          <label>Bridge URL<input value={xhsConfig.bridgeUrl} onChange={(event) => setXhsConfig({ ...xhsConfig, bridgeUrl: event.target.value })} /></label>
-          <button disabled={busy === "xhs"} onClick={() => runAction("xhs", () => api("/verify/xhs", { method: "POST" }))}>检查小红书 gate</button>
-          <ActionFeedback title="小红书 gate" result={results.xhs} />
+          <label><span><input type="checkbox" checked={xhsConfig.enabled} onChange={(event) => setXhsConfig({ ...xhsConfig, enabled: event.target.checked })} /> 启用小红书草稿箱连接</span></label>
+          <details className="advanced-settings" open>
+            <summary>浏览器桥接设置</summary>
+            <label>小红书自动化目录<input value={xhsConfig.projectDir} onChange={(event) => setXhsConfig({ ...xhsConfig, projectDir: event.target.value })} /></label>
+            <label>Bridge URL<input value={xhsConfig.bridgeUrl} onChange={(event) => setXhsConfig({ ...xhsConfig, bridgeUrl: event.target.value })} /></label>
+          </details>
+          <button disabled={busy === "xhs"} onClick={() => runAction("xhs", () => api("/verify/xhs", { method: "POST" }))}>检查小红书连接</button>
+          <ActionFeedback title="小红书检查" result={results.xhs} />
         </article>
 
         <article className="settings-card">
-          <h3>当前来源与图片策略</h3>
-          <p className="helper">前端只开放 AIHot 固定源；RSS/RSSHub 后端能力保留，后续再重新开放渠道库。</p>
-          <p className="helper">BrowserAct 和 MediaCrawler 仍作为入选候选后的原文补全能力，不是普通订阅源。</p>
-          <p className="helper">图片生成需要独立图片模型配置。未配置时不会生成图片资产，也不会进入图片审批队列。</p>
+          <h3>当前使用范围</h3>
+          <p className="helper">当前对外流程只开放 AIHot 日报、热点分析、候选评审、本地草稿和平台交接。</p>
+          <p className="helper">RSS/RSSHub 订阅管理仍在后台保留，前端暂不开放。浏览器补全和采集器只用于入选候选后的原文获取。</p>
+          <p className="helper">图片生成需要独立图片模型。未配置时不会生成图片资产，也不会出现图片审批任务。</p>
         </article>
       </div>
     </section>
@@ -786,6 +878,7 @@ export function DraftPreviewGridV2({
   togglePlatform,
   generateDrafts,
   publishDrafts,
+  regenerateAsset,
   loadArtifact,
   taskProgress,
   publishProgress,
@@ -798,6 +891,7 @@ export function DraftPreviewGridV2({
   togglePlatform: (platform: Platform) => void;
   generateDrafts: () => void;
   publishDrafts: () => void;
+  regenerateAsset: (assetId: string) => void;
   loadArtifact: (artifactPath: string, title?: string) => void;
   taskProgress?: TaskProgress;
   publishProgress?: TaskProgress;
@@ -806,20 +900,108 @@ export function DraftPreviewGridV2({
   const drafts = run?.drafts ?? [];
   const platformDrafts = drafts.filter((draft) => draft.platform === "wechat" || draft.platform === "xhs");
   const successfulPublishes = (run?.publishResults ?? []).filter((result) => asString(result.status) === "success");
+  const groupedSourceIds = [...new Set(drafts.map((draft) => draft.sourceItemId))];
   return (
     <section className="panel" id="drafts">
       <div className="section-title">
         <div>
-          <p className="eyebrow">{"\u8349\u7a3f\u751f\u6210"}</p>
-          <h2>{"\u5148\u751f\u6210\u672c\u5730\u8349\u7a3f\uff0c\u518d\u786e\u8ba4\u63a8\u8fdb\u5e73\u53f0\u8349\u7a3f\u7bb1\u3002"}</h2>
-          <p className="helper">{"\u751f\u6210\u8349\u7a3f\u53ea\u4f1a\u4ea7\u51fa\u672c\u5730 Markdown \u548c\u9884\u89c8\u3002\u5fae\u4fe1/\u5c0f\u7ea2\u4e66\u7684 handoff \u6216\u771f\u5b9e\u8349\u7a3f\u7bb1\u521b\u5efa\uff0c\u9700\u8981\u5728\u7b2c 3 \u6b65\u5355\u72ec\u786e\u8ba4\u3002"}</p>
+          <p className="eyebrow">草稿生成</p>
+          <h2>先生成本地草稿，再决定是否交接到平台。</h2>
+          <p className="helper">这一步只生成可审阅的本地内容。确认无误后，再单独推进到微信或小红书草稿箱。</p>
         </div>
-        <button disabled={busy === "drafts" || !run || selectedCandidateIds.length === 0} onClick={generateDrafts}>{"\u751f\u6210\u672c\u5730\u8349\u7a3f"}</button>
+        <button disabled={busy === "drafts" || !run || selectedCandidateIds.length === 0} onClick={generateDrafts}>生成本地草稿</button>
       </div>
 
-      <div className="workflow-steps">
+      <div className="draft-workbench">
+        <aside className="draft-control-rail">
+          <h3>生成与上传</h3>
+          <p className="helper">草稿生成会同步生成平台封面和配图；微信上传仍需要你显式确认。</p>
+          <div className="toggle-row vertical">
+            {platformOptions.map((platform) => (
+              <label key={platform}><span><input type="checkbox" checked={runSettings.platforms.includes(platform)} onChange={() => togglePlatform(platform)} /> {displayLabel(platform)}</span></label>
+            ))}
+          </div>
+          <button disabled={busy === "drafts" || !run || selectedCandidateIds.length === 0} onClick={generateDrafts}>生成图文草稿</button>
+          <label className="real-draft-toggle"><span><input type="checkbox" checked={runSettings.allowRealDraft} onChange={(event) => setRunSettings({ ...runSettings, allowRealDraft: event.target.checked })} /> 上传真实平台草稿（需二次确认）</span></label>
+          <button type="button" disabled={busy === "publish" || platformDrafts.length === 0} onClick={publishDrafts}>上传微信 / 生成小红书交接</button>
+        </aside>
+
+        <div className="draft-preview-stage">
+          <TaskProgressPanel progress={taskProgress} />
+          <TaskProgressPanel progress={publishProgress} />
+          {successfulPublishes.length > 0 && (
+            <div className="publish-success-list" role="status" aria-live="polite">
+              {successfulPublishes.map((result) => {
+                const platform = displayLabel(asString(result.platform));
+                const externalId = asString(result.externalId);
+                return <span key={`${asString(result.platform)}-${asString(result.draftId)}`}>{platform}草稿箱创建成功{externalId ? `: ${externalId}` : ""}</span>;
+              })}
+            </div>
+          )}
+
+          {drafts.length === 0 && <p className="helper">候选评审后勾选内容，再生成评审稿、微信公众号和小红书图文草稿。</p>}
+          {groupedSourceIds.map((sourceItemId) => {
+            const candidate = run?.candidateReviews?.find((item) => item.sourceItemId === sourceItemId);
+            const sourceDrafts = drafts.filter((draft) => draft.sourceItemId === sourceItemId);
+            return (
+              <article className="candidate-draft-section" key={sourceItemId}>
+                <header>
+                  <span className="eyebrow">候选图文</span>
+                  <h3>{candidate?.title ?? sourceItemId}</h3>
+                  {candidate?.summary?.summary && <p className="helper">{candidate.summary.summary}</p>}
+                </header>
+                <div className="platform-preview-grid">
+                  {sourceDrafts.map((draft) => {
+                    const assets = draftAssets(run, draft);
+                    const publish = (run?.publishResults ?? []).find((result) => asString(result.draftId) === draft.id);
+                    const handoffs = publishArtifactPaths(run, draft.id);
+                    return (
+                      <article className={`draft-card platform-${draft.platform}`} key={draft.id}>
+                        <div className="draft-card-title">
+                          <span>{displayLabel(draft.platform)}</span>
+                          <h4>{draft.title}</h4>
+                        </div>
+                        <PlatformArticlePreview run={run} draft={draft} assets={assets} />
+                        {assets.length === 0 && draft.platform !== "review" && <p className="helper">未配置图片生成模型，本次不会申请图片生成。</p>}
+                        {publish && <small>平台推进：{displayLabel(asString(publish.status))} / {asString(publish.message) || asString(publish.verificationSignal) || "已生成交接信息"}</small>}
+                        <div className="action-row">
+                          {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}: ${draft.title}`)}>{draft.platform === "review" ? "评审稿预览" : "打开 Markdown"}</button>}
+                          {handoffs.map((handoff) => <button type="button" key={handoff.path} onClick={() => loadArtifact(handoff.path, handoff.label)}>{handoff.label}</button>)}
+                        </div>
+                        <RawJsonDetails data={{ draft, assets, publish }} />
+                      </article>
+                    );
+                  })}
+                </div>
+              </article>
+            );
+          })}
+        </div>
+
+        <aside className="asset-inspector">
+          <h3>图片资产</h3>
+          <p className="helper">每张图片都可以单独重生成。生成失败不会阻断文字草稿。</p>
+          {(run?.assets ?? []).length === 0 && <p className="helper">暂无图片资产。</p>}
+          {(run?.assets ?? []).map((asset) => {
+            const url = assetImageUrl(run?.runId, asset);
+            return (
+              <article className={`asset-preview-card ${asset.status ?? "planned"}`} key={asset.id}>
+                {url ? <img src={url} alt={asset.altText ?? asset.id} /> : <div className="image-placeholder">{displayLabel(asset.status ?? "planned")}</div>}
+                <strong>{displayLabel(asset.platform ?? "")} {displayLabel(asset.type)}</strong>
+                <small>{asset.id}</small>
+                <small>{asset.ratio ?? "默认比例"} / 第 {asset.revision ?? 1} 版</small>
+                {asset.errorMessage && <p className="risk-note">{asset.errorMessage}</p>}
+                {asset.prompt && <details><summary>图片提示词</summary><p>{asset.prompt}</p></details>}
+                <button type="button" disabled={busy === "asset-regenerate"} onClick={() => regenerateAsset(asset.id)}>重新生成这张图</button>
+              </article>
+            );
+          })}
+        </aside>
+      </div>
+
+      <div className="workflow-steps legacy-draft-steps" hidden>
         <article>
-          <strong>{"1. \u9009\u62e9\u8349\u7a3f\u7c7b\u578b"}</strong>
+          <strong>1. 选择草稿类型</strong>
           <div className="toggle-row">
             {platformOptions.map((platform) => (
               <label key={platform}><span><input type="checkbox" checked={runSettings.platforms.includes(platform)} onChange={() => togglePlatform(platform)} /> {displayLabel(platform)}</span></label>
@@ -827,30 +1009,18 @@ export function DraftPreviewGridV2({
           </div>
         </article>
         <article>
-          <strong>{"2. \u751f\u6210\u5e76\u5ba1\u9605\u672c\u5730\u8349\u7a3f"}</strong>
-          <p>{"\u8bf7\u5148\u6253\u5f00\u8bc4\u5ba1\u7a3f\u3001\u5fae\u4fe1 Markdown \u6216\u5c0f\u7ea2\u4e66 Markdown \u9884\u89c8\uff0c\u786e\u8ba4\u5185\u5bb9\u540e\u518d\u63a8\u8fdb\u5e73\u53f0\u3002"}</p>
+          <strong>2. 审阅本地草稿</strong>
+          <p>先打开评审稿、微信草稿或小红书草稿预览，确认内容后再推进平台。</p>
         </article>
         <article>
-          <strong>{"3. \u786e\u8ba4\u5e73\u53f0\u63a8\u8fdb"}</strong>
-          <label><span><input type="checkbox" checked={runSettings.allowRealDraft} onChange={(event) => setRunSettings({ ...runSettings, allowRealDraft: event.target.checked })} /> {"\u521b\u5efa\u771f\u5b9e\u5e73\u53f0\u8349\u7a3f\uff08\u9700\u4e8c\u6b21\u786e\u8ba4\u4e14 gate \u901a\u8fc7\uff09"}</span></label>
-          <button type="button" disabled={busy === "publish" || platformDrafts.length === 0} onClick={publishDrafts}>{"\u63a8\u8fdb\u5e73\u53f0\u8349\u7a3f"}</button>
+          <strong>3. 推进平台草稿</strong>
+          <label><span><input type="checkbox" checked={runSettings.allowRealDraft} onChange={(event) => setRunSettings({ ...runSettings, allowRealDraft: event.target.checked })} /> 创建真实平台草稿（需二次确认且连接检查通过）</span></label>
+          <button type="button" disabled={busy === "publish" || platformDrafts.length === 0} onClick={publishDrafts}>推进平台草稿</button>
         </article>
       </div>
 
-      <TaskProgressPanel progress={taskProgress} />
-      <TaskProgressPanel progress={publishProgress} />
-      {successfulPublishes.length > 0 && (
-        <div className="publish-success-list" role="status" aria-live="polite">
-          {successfulPublishes.map((result) => {
-            const platform = displayLabel(asString(result.platform));
-            const externalId = asString(result.externalId);
-            return <span key={`${asString(result.platform)}-${asString(result.draftId)}`}>{platform}{"\u8349\u7a3f\u7bb1\u521b\u5efa\u6210\u529f"}{externalId ? `: ${externalId}` : ""}</span>;
-          })}
-        </div>
-      )}
-
-      <div className="draft-grid">
-        {drafts.length === 0 && <p className="helper">{"\u5019\u9009\u8bc4\u5ba1\u540e\u52fe\u9009\u5185\u5bb9\uff0c\u518d\u751f\u6210 review\u3001\u5fae\u4fe1\u516c\u4f17\u53f7\u548c\u5c0f\u7ea2\u4e66\u8349\u7a3f\u3002"}</p>}
+      <div className="draft-grid" hidden>
+        {drafts.length === 0 && <p className="helper">候选评审后勾选内容，再生成评审稿、微信公众号和小红书草稿。</p>}
         {drafts.map((draft) => {
           const assets = (run?.assets ?? []).filter((asset) => draft.assetIds?.includes(asset.id) || asset.draftId === draft.id);
           const publish = (run?.publishResults ?? []).find((result) => asString(result.draftId) === draft.id);
@@ -859,16 +1029,16 @@ export function DraftPreviewGridV2({
             <article className="draft-card" key={draft.id}>
               <span>{displayLabel(draft.platform)}</span>
               <h3>{draft.title}</h3>
-              <MarkdownPreview compact content={draft.body ?? draft.digest ?? "\u6682\u65e0\u9884\u89c8\u3002"} />
-              {assets.length === 0 && <p className="helper">{"\u672a\u914d\u7f6e\u56fe\u7247\u751f\u6210\u6a21\u578b\uff0c\u672c\u6b21\u4e0d\u4f1a\u7533\u8bf7\u56fe\u7247\u751f\u6210\u3002"}</p>}
+              <MarkdownPreview compact content={draft.body ?? draft.digest ?? "暂无预览。"} />
+              {assets.length === 0 && <p className="helper">未配置图片生成模型，本次不会申请图片生成。</p>}
               <div className="asset-list">
                 {assets.map((asset) => (
-                  <small key={asset.id}>{"\u56fe\u7247\uff1a"}{displayLabel(asset.type)} / {asset.ratio ?? "\u9ed8\u8ba4\u6bd4\u4f8b"} / {displayLabel(asset.status ?? "planned")}</small>
+                  <small key={asset.id}>图片：{displayLabel(asset.type)} / {asset.ratio ?? "默认比例"} / {displayLabel(asset.status ?? "planned")}</small>
                 ))}
               </div>
-              {publish && <small>{"\u5e73\u53f0\u63a8\u8fdb\uff1a"}{displayLabel(asString(publish.status))} / {asString(publish.message) || asString(publish.verificationSignal) || "\u5df2\u751f\u6210\u4ea4\u63a5\u4fe1\u606f"}</small>}
+              {publish && <small>平台推进：{displayLabel(asString(publish.status))} / {asString(publish.message) || asString(publish.verificationSignal) || "已生成交接信息"}</small>}
               <div className="action-row">
-                {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}: ${draft.title}`)}>{draft.platform === "review" ? "\u8bc4\u5ba1\u7a3f\u9884\u89c8" : "\u6253\u5f00 Markdown \u4ea7\u7269"}</button>}
+                {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}: ${draft.title}`)}>{draft.platform === "review" ? "评审稿预览" : "打开草稿预览"}</button>}
                 {handoffs.map((handoff) => <button type="button" key={handoff.path} onClick={() => loadArtifact(handoff.path, handoff.label)}>{handoff.label}</button>)}
               </div>
               <RawJsonDetails data={{ draft, assets, publish }} />

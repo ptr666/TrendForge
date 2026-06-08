@@ -32,7 +32,7 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 4 | 候选评审无 planned 风险污染 | done | 候选 `riskNotes` 不显示 `Original text acquisition planned for BrowserAct.`。 |
 | 5 | 中文译文和中文总结契约 | done | OpenAI-compatible provider 要求返回 `translatedOriginal`、`summary`、`angle`、`keyPoints`、`riskNotes`；默认 provider 不假装翻译。 |
 | 6 | 平台草稿生成测试入口 | done | review、WeChat、XHS drafts 能通过 pipeline 生成并保存本地 artifact；不自动创建 publisher handoff。 |
-| 7 | 图片生成默认关闭与配置 UI | done | 未配置图片 provider 时，pipeline 不生成 assets；Web 配置区可单独保存图片模型，配置后规划微信 16:9 和小红书 3:4 图片提示词并进入审批。 |
+| 7 | 图片生成默认关闭与真实 provider | done | 未配置图片 provider 时，pipeline 不生成 assets；配置 OpenAI-compatible 图片模型后，可真实生成微信 16:9 与小红书 3:4 图片到 `workspace/runs/<runId>/assets/`，并支持单图重生成。 |
 | 8 | WeChat draft adapter gate | done | 平台推进阶段 dry-run 生成微信公众号 handoff；真实草稿路径 fail closed；支持 AppID/AppSecret、legacyCredentialSource 和本地封面路径；真实链路按 token -> add_material -> uploadimg -> draft/add 执行。 |
 | 9 | XHS draft adapter gate | done | dry-run 生成小红书 planned commands；真实保存受 Hermes/bridge/login gate 控制。 |
 | 10 | CLI/API 查询 run history、items、drafts、artifacts | done | API 和 CLI 能读取 runs、events、items、drafts、artifacts；`GET /runs` 返回 `runsDir`。 |
@@ -42,6 +42,9 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 14 | AIHot-only 前端闭环 | done | 前端隐藏 RSS/RSSHub 接入，只展示 AIHot 日报、全选/选择、热点分析、候选评审、草稿生成和运行历史。 |
 | 15 | 草稿生成与平台推进拆分 | done | `/pipeline/drafts` 只生成本地草稿和图片计划；`/pipeline/publish-drafts` 才从已生成草稿执行 publisher handoff 或真实草稿 gate。 |
 | 16 | 运行历史布局稳定性 | done | 左侧 run 列表与右侧 artifact 阅读器使用稳定 grid、内部滚动、长文本换行和 `min-width: 0`，避免长 runId、URL 或 Markdown/JSON 撑开页面。 |
+| 17 | 草稿生成图文闭环 | done | 生成草稿时同步生成平台图片、图文预览、单图重生成，并把生成封面/正文图接入微信草稿箱和 XHS handoff。 |
+| 18 | 真实微信草稿箱验证 | done | 2026-06-09 使用真实微信 gate 跑通 `AIHot -> 候选 -> 微信草稿 -> 生成封面/正文图 -> publish-drafts -> draft/add`；run events 返回 `Official draft/add response returned media_id.`，handoff 未包含 access token。 |
+| 19 | 图片请求超时保护 | done | OpenAI-compatible 图片 provider 增加单次请求超时；图片模型卡住时单张图片失败不应阻断文字草稿、已有图片和平台 handoff 保存。 |
 
 ## Current Web Flow
 
@@ -64,7 +67,7 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 - 草稿生成和平台草稿推进分离，用户先审阅本地草稿，再单独推进 handoff 或真实草稿 gate。
 - HTTP 原文抓取是默认能力；BrowserAct 和 MediaCrawler 是显式 fallback。
 - 文本模型负责真实中文译文和总结；deterministic provider 只提供可测试占位。
-- 图片模型独立于文本模型；未配置时不生成图片资产，配置后只生成图片提示词和待审批资产，不自动上传图片。
+- 图片模型独立于文本模型；未配置时不生成图片资产，配置后可真实生成本地图文资产，但不自动上传平台。
 - RSS/RSSHub API 保留，但不在当前主界面暴露。
 - 原始 JSON 只作为调试折叠区。
 - 启动脚本不会清空 run history；Web 显示当前 `runsDir`。
@@ -74,9 +77,10 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 顺序 | 切片 | 状态 | 验收信号 |
 | --- | --- | --- | --- |
 | 1 | 候选详情对比增强 | planned | 原因、中文译文、总结、评分、原文可更快横向对比。 |
-| 2 | 草稿预览增强 | planned | 微信和小红书草稿正文、标签、图片策略和 handoff 状态更接近最终发布视图。 |
-| 3 | 真实平台草稿手动演练 | planned | 使用真实微信 AppSecret、本地封面或封面 media ID、小红书登录态各跑一次 dry-run -> gate -> real draft 的人工验收。 |
+| 2 | 草稿预览细节增强 | planned | 继续优化微信排版、XHS 轮播细节、图片替换和平台 handoff 状态提示。 |
+| 3 | 小红书真实草稿手动演练 | planned | 微信真实草稿箱链路已跑通；下一步使用小红书登录态跑一次 dry-run -> gate -> real draft saved signal 的人工验收。 |
 | 4 | 恢复 RSS/RSSHub 前端入口 | planned | AIHot 主链路稳定后恢复；必须采用“预览/验证 -> 保存 -> 本次选择”的两段式流程。 |
+| 5 | 图片审核提醒语义优化 | planned | 微信草稿箱已成功上传后，图片资产提醒应显示为事后审核或可重生成项，不再使用阻塞语义。 |
 
 ## Documentation Sync Loop
 
