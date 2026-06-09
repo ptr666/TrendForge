@@ -98,6 +98,11 @@ test("API serves registered run asset files and regenerates one asset", async ()
     assert.equal(fileResponse.headers.get("content-type"), "image/png");
     assert.equal(Buffer.from(await fileResponse.arrayBuffer()).toString("utf8"), "asset-bytes");
 
+    const versionedFileResponse = await fetch(`${baseUrl}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(assetId)}/file?rev=1`);
+    assert.equal(versionedFileResponse.ok, true);
+    assert.equal(versionedFileResponse.headers.get("content-type"), "image/png");
+    assert.equal(Buffer.from(await versionedFileResponse.arrayBuffer()).toString("utf8"), "asset-bytes");
+
     const regenerated = await requestJson(`${baseUrl}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(assetId)}/regenerate`, {
       method: "POST"
     }) as { assets?: Array<{ id: string; revision?: number; status?: string; path?: string }> };

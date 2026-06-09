@@ -17,8 +17,8 @@ RSS/RSSHub 后端能力仍保留，但前端订阅入口暂时隐藏，先保证
 - 中文译文与总结：真实中文翻译和总结依赖 OpenAI-compatible 文本模型；本地可通过 `workspace/config/model.json` 或环境变量启用，密钥文件不会提交到仓库。未启用模型时只生成本地确定性中文占位，不假装完成翻译。
 - 产物阅读器：原文 Markdown、草稿 Markdown 和 publisher handoff 会在页面内以可读预览打开。Markdown 预览默认隐藏 frontmatter；JSON handoff 默认显示工作流、平台、草稿正文和计划命令，原始 Markdown/JSON 仅作为折叠调试信息。
 - 草稿生成：支持 review、微信公众号、小红书三类草稿；配置图片模型后会同步生成平台封面和内容配图。
-- 图片策略：图片生成模型需要单独配置。未配置图片 provider 时，不生成图片资产、不进入图片审批队列；配置 OpenAI-compatible 图片 provider 后，会优先按 Responses `image_generation` 调用真实生图，模型不支持时 fallback 到 `/v1/images/generations`，生成图片保存到 `workspace/runs/<runId>/assets/`，并支持单张图片重生成。
-- 平台交接：本地草稿生成与平台草稿推进已拆分。默认只生成 review/微信公众号/小红书本地图文草稿；用户审阅后再显式推进 publisher handoff 或真实平台草稿。微信公众号真实上传使用微信官方 API：优先使用草稿关联的生成封面图上传为永久素材，正文配图会通过 `/cgi-bin/media/uploadimg` 转存后再调用 `/cgi-bin/draft/add` 创建草稿；小红书 handoff 会写入本地图片路径供浏览器工作流上传。
+- 图片策略：图片生成模型需要单独配置。未配置图片 provider 时，不生成图片资产；配置 OpenAI-compatible 图片 provider 后，会优先按 Responses `image_generation` 调用真实生图，模型不支持时 fallback 到 `/v1/images/generations`，生成图片保存到 `workspace/runs/<runId>/assets/`，并支持在草稿页单张图片重生成。阻塞与提醒只展示图片生成失败等异常，不做图片审批。
+- 平台交接：本地草稿生成与平台草稿推进已拆分。默认只生成 review/微信公众号/小红书本地图文草稿；用户审阅后再显式推进 publisher handoff 或真实平台草稿。微信公众号真实上传使用微信官方 API：本地 Markdown 草稿会先转换为带基础样式的微信 HTML，优先使用草稿关联的生成封面图上传为永久素材，正文配图会通过 `/cgi-bin/media/uploadimg` 转存后再调用 `/cgi-bin/draft/add` 创建草稿；小红书 handoff 会写入本地图片路径供浏览器工作流上传。
 - 运行历史：支持查看 runsDir、恢复 run、打开产物、删除单条和清空全部。
 
 ## 最新验证状态

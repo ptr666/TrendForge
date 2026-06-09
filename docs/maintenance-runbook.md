@@ -26,7 +26,7 @@ git submodule status
 - 发布默认保持 dry-run，除非用户显式开启。
 - 微信公众号真实草稿创建需要 `allowRealDraft=true`、有效凭证、IP 白名单/token 就绪，以及 `coverMediaId`。
 - 小红书真实浏览器草稿保存需要 `allowRealDraft=true`、已配置 `xiaohongshu-skills`、bridge/extension/login 就绪，以及页面级草稿已保存信号。
-- 图片审批状态保存在 saved run 中，审批后只应把对应 asset 从 review queue 中移除。
+- 图片预览和单图重生成在草稿页完成；review queue 只展示图片生成失败等异常，不承载图片审批流程。
 
 ## 发布前检查
 
@@ -45,4 +45,4 @@ git submodule status
 - 发布失败不得修改 source item 或其他平台草稿。
 - 真实外部副作用必须放在显式 flag 或 UI 确认之后。
 - 小红书成功不能只看命令退出码，必须有页面级证据。
-- 如果 review queue 状态异常，先检查 saved run 的 asset 状态，并通过 public API 路径重建；不要直接手工编辑存储 JSON。
+- 如果 review queue 状态异常，先检查 saved run 的 errors、publishResults 和 blocked assets，并通过 public API 路径重建；不要直接手工编辑存储 JSON。

@@ -46,6 +46,8 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 18 | 真实微信草稿箱验证 | done | 2026-06-09 使用真实微信 gate 跑通 `AIHot -> 候选 -> 微信草稿 -> 生成封面/正文图 -> publish-drafts -> draft/add`；run events 返回 `Official draft/add response returned media_id.`，handoff 未包含 access token。 |
 | 19 | 图片请求超时保护 | done | OpenAI-compatible 图片 provider 增加单次请求超时；图片模型卡住时单张图片失败不应阻断文字草稿、已有图片和平台 handoff 保存。 |
 | 20 | 长任务进度按阶段切片 | done | Web 轮询 `/runs/:runId/events` 时按 `screen`、`draft_generation`、`platform_publish` 各自阶段计算进度；热点分析阶段的原文失败提醒不会在草稿生成阶段重复出现；草稿生成写入 `compose_media` started/draft_started/draft_finished/finished 事件。 |
+| 21 | 阻塞与提醒只显示异常 | done | 正常生成的图片不再进入 review queue 或审批流程；图片预览和单图重生成留在草稿页，只有 blocked 图片资产、publisher gate 和 pipeline 错误进入阻塞与提醒。 |
+| 22 | 微信 Markdown 上传排版修复 | done | 微信 publisher 在 `draft/add` 前把本地 Markdown 草稿转换为微信 HTML，处理标题、段落、列表、引用和正文图片，避免 Markdown 标记原样进入公众号草稿箱。 |
 
 ## Current Web Flow
 
@@ -68,7 +70,7 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 - 草稿生成和平台草稿推进分离，用户先审阅本地草稿，再单独推进 handoff 或真实草稿 gate。
 - HTTP 原文抓取是默认能力；BrowserAct 和 MediaCrawler 是显式 fallback。
 - 文本模型负责真实中文译文和总结；deterministic provider 只提供可测试占位。
-- 图片模型独立于文本模型；未配置时不生成图片资产，配置后可真实生成本地图文资产，但不自动上传平台。
+- 图片模型独立于文本模型；未配置时不生成图片资产，配置后可真实生成本地图文资产，但不自动上传平台；图片调整在草稿页完成，阻塞与提醒只展示异常。
 - 长任务进度按当前任务阶段切片；草稿生成可显示媒体合成阶段、已处理草稿数和耗时。
 - RSS/RSSHub API 保留，但不在当前主界面暴露。
 - 原始 JSON 只作为调试折叠区。
@@ -82,7 +84,6 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 2 | 草稿预览细节增强 | planned | 继续优化微信排版、XHS 轮播细节、图片替换和平台 handoff 状态提示。 |
 | 3 | 小红书真实草稿手动演练 | planned | 微信真实草稿箱链路已跑通；下一步使用小红书登录态跑一次 dry-run -> gate -> real draft saved signal 的人工验收。 |
 | 4 | 恢复 RSS/RSSHub 前端入口 | planned | AIHot 主链路稳定后恢复；必须采用“预览/验证 -> 保存 -> 本次选择”的两段式流程。 |
-| 5 | 图片审核提醒语义优化 | planned | 微信草稿箱已成功上传后，图片资产提醒应显示为事后审核或可重生成项，不再使用阻塞语义。 |
 
 ## Documentation Sync Loop
 

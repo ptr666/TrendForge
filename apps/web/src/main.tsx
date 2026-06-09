@@ -374,15 +374,6 @@ function App() {
     setActiveArtifactTitle(title);
   }
 
-  async function approveAsset(item: ReviewQueueItem) {
-    if (!item.runId || !item.id.includes(":asset:")) return;
-    const assetId = item.id.split(":asset:")[1];
-    if (!assetId) return;
-    await api(`/runs/${encodeURIComponent(item.runId)}/assets/${encodeURIComponent(assetId)}/approve`, { method: "POST" });
-    await loadRun(item.runId);
-    await refresh({ quiet: true });
-  }
-
   function clearSelectedRunState() {
     setSelectedRun(undefined);
     setRunEvents([]);
@@ -588,7 +579,7 @@ function App() {
     if (item.category === "summary" || item.category === "draft" || item.category === "original-text") return false;
     if (item.category === "pipeline" && item.id.includes(":pipeline:select:")) return false;
     if (item.category === "publisher") return item.status === "blocked";
-    if (item.category === "asset") return item.status === "blocked" || item.status === "needs-review";
+    if (item.category === "asset") return item.status === "blocked";
     return item.status === "blocked";
   });
   const queueMetrics = {
@@ -657,7 +648,7 @@ function App() {
           publishProgress={taskProgress?.kind === "publish" ? taskProgress : undefined}
           busy={busy}
         />
-        <IssuesPanel reviewQueue={actionableQueue} queueMetrics={queueMetrics} loadArtifact={(artifactPath, title) => void loadArtifact(artifactPath, title)} approveAsset={(item) => void approveAsset(item)} />
+        <IssuesPanel reviewQueue={actionableQueue} queueMetrics={queueMetrics} loadArtifact={(artifactPath, title) => void loadArtifact(artifactPath, title)} />
         <HistoryPanel
           runs={runs}
           runsDir={runsDir}

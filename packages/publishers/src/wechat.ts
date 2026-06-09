@@ -79,6 +79,99 @@ function maskSecret(value: string | undefined): string | undefined {
   return value.length <= 4 ? "****" : `${"*".repeat(Math.max(4, value.length - 4))}${value.slice(-4)}`;
 }
 
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("\"", "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
+function inlineMarkdownToHtml(value: string): string {
+  return escapeHtml(value)
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/`([^`]+)`/g, "<code style=\"background:#f6f2ea;border-radius:4px;padding:1px 4px;\">$1</code>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, "<a href=\"$2\" style=\"color:#0f7f5f;text-decoration:none;\">$1</a>");
+}
+
+function flushWechatParagraph(html: string[], paragraph: string[]): void {
+  if (paragraph.length === 0) return;
+  const text = paragraph.join(" ").trim();
+  if (text) {
+    html.push(`<p style="margin:0 0 16px;line-height:1.8;color:#26312b;font-size:16px;">${inlineMarkdownToHtml(text)}</p>`);
+  }
+  paragraph.length = 0;
+}
+
+function markdownToWechatHtml(markdown: string): string {
+  const source = markdown.replace(/^\uFEFF/, "").replace(/^---[\s\S]*?---\s*/, "").trim();
+  if (!source) return "";
+  const html: string[] = [];
+  const paragraph: string[] = [];
+  let listItems: string[] = [];
+
+  function flushList() {
+    if (listItems.length === 0) return;
+    html.push(`<ul style="margin:0 0 18px;padding-left:20px;color:#26312b;font-size:16px;line-height:1.8;">${listItems.join("")}</ul>`);
+    listItems = [];
+  }
+
+  for (const rawLine of source.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      flushWechatParagraph(html, paragraph);
+      flushList();
+      continue;
+    }
+
+    const image = /<img\b[^>]*src=["']([^"']+)["'][^>]*>/i.exec(line);
+    if (image) {
+      flushWechatParagraph(html, paragraph);
+      flushList();
+      const src = escapeHtml(image[1] ?? "");
+      const alt = /alt=["']([^"']*)["']/i.exec(line)?.[1] ?? "";
+      html.push(`<figure style="margin:20px 0;text-align:center;"><img src="${src}" alt="${escapeHtml(alt)}" style="max-width:100%;border-radius:12px;display:block;margin:0 auto;" /></figure>`);
+      continue;
+    }
+
+    const heading = /^(#{1,4})\s+(.+)$/.exec(line);
+    if (heading) {
+      flushWechatParagraph(html, paragraph);
+      flushList();
+      const level = heading[1].length;
+      const text = inlineMarkdownToHtml(heading[2]);
+      if (level === 1) {
+        html.push(`<h1 style="margin:0 0 20px;font-size:24px;line-height:1.35;color:#17201b;font-weight:700;">${text}</h1>`);
+      } else {
+        html.push(`<h2 style="margin:26px 0 12px;padding-left:10px;border-left:4px solid #0f7f5f;font-size:19px;line-height:1.45;color:#17201b;font-weight:700;">${text}</h2>`);
+      }
+      continue;
+    }
+
+    const bullet = /^[-*]\s+(.+)$/.exec(line);
+    if (bullet) {
+      flushWechatParagraph(html, paragraph);
+      listItems.push(`<li style="margin:0 0 8px;">${inlineMarkdownToHtml(bullet[1])}</li>`);
+      continue;
+    }
+
+    const quote = /^>\s*(.+)$/.exec(line);
+    if (quote) {
+      flushWechatParagraph(html, paragraph);
+      flushList();
+      html.push(`<blockquote style="margin:20px 0;padding:12px 14px;border-left:4px solid #d7b46a;background:#fff8e8;color:#5d665f;line-height:1.75;font-size:15px;">${inlineMarkdownToHtml(quote[1])}</blockquote>`);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushWechatParagraph(html, paragraph);
+  flushList();
+  return html.join("\n");
+}
+
 export async function requestWechatAccessToken(
   appId: string,
   appSecret: string,
@@ -130,12 +223,15 @@ async function requestWechatAccessTokenRaw(
 
 function wechatArticleFromDraft(draft: PlatformDraft, coverMediaId: string) {
   const digest = (draft.digest ?? draft.body).replace(/\s+/g, " ").trim().slice(0, 120);
+  const content = /<\/?[a-z][\s\S]*>/i.test(draft.body) && !/^#|\n#/m.test(draft.body)
+    ? draft.body
+    : markdownToWechatHtml(draft.body);
   return {
     articles: [{
       title: draft.title.slice(0, 64),
       author: "TrendForge",
       digest,
-      content: draft.body,
+      content,
       thumb_media_id: coverMediaId,
       need_open_comment: 0,
       only_fans_can_comment: 0

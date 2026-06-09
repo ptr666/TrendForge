@@ -604,7 +604,8 @@ async function handleRequest(req: http.IncomingMessage, res: http.ServerResponse
   }
 
   if (req.method === "GET" && req.url?.startsWith("/runs/")) {
-    const runId = decodeURIComponent(req.url.slice("/runs/".length));
+    const requestPath = new URL(req.url, "http://127.0.0.1").pathname;
+    const runId = decodeURIComponent(requestPath.slice("/runs/".length));
     const assetFileMatch = /^([^/]+)\/assets\/([^/]+)\/file$/.exec(runId);
     if (assetFileMatch) {
       const realRunId = decodeURIComponent(assetFileMatch[1] ?? "");

@@ -186,6 +186,8 @@ test("WeChat draft creation calls official draft API and returns media id", asyn
     assert.equal(body.articles?.[0]?.thumb_media_id, "cover-media-id");
     assert.equal(body.articles?.[0]?.title, "中文 AI 热点");
     assert.match(body.articles?.[0]?.content ?? "", /公众号草稿/);
+    assert.match(body.articles?.[0]?.content ?? "", /<h1/);
+    assert.doesNotMatch(body.articles?.[0]?.content ?? "", /^#\s/m);
     return new Response(JSON.stringify({ media_id: "draft-media-id" }), {
       status: 200,
       headers: { "content-type": "application/json" }
@@ -246,6 +248,8 @@ test("WeChat official publisher creates a real draft only when gates pass", asyn
         const body = JSON.parse(String(init?.body)) as { articles?: Array<{ thumb_media_id?: string; content?: string }> };
         assert.equal(body.articles?.[0]?.thumb_media_id, "uploaded-cover-media-id");
         assert.match(body.articles?.[0]?.content ?? "", /mmbiz\.qpic\.cn\/uploaded-inline\.png/);
+        assert.match(body.articles?.[0]?.content ?? "", /<h1/);
+        assert.doesNotMatch(body.articles?.[0]?.content ?? "", /^#\s/m);
       }
       return new Response(JSON.stringify({ media_id: "draft-media-id" }), {
         status: 200,
@@ -334,6 +338,8 @@ test("WeChat official publisher uploads generated cover and inline assets", asyn
         const body = JSON.parse(String(init?.body)) as { articles?: Array<{ thumb_media_id?: string; content?: string }> };
         assert.equal(body.articles?.[0]?.thumb_media_id, "generated-cover-media-id");
         assert.match(body.articles?.[0]?.content ?? "", /generated-inline\.png/);
+        assert.match(body.articles?.[0]?.content ?? "", /<figure/);
+        assert.doesNotMatch(body.articles?.[0]?.content ?? "", /^#\s/m);
       }
       return new Response(JSON.stringify({ media_id: "draft-media-id" }), {
         status: 200,

@@ -63,10 +63,10 @@ grill-me 或 grill-with-docs
 - 文本模型 provider 负责中文原文翻译、中文总结、角度提炼、关键点和风险提示。
 - OpenAI-compatible text provider 必须要求模型返回 `title`、`translatedOriginal`、`summary`、`angle`、`keyPoints`、`riskNotes`。
 - deterministic text provider 只提供可测试占位，不假装完成英文原文翻译。
-- 图片 provider 与文本 provider 分离。未配置图片 provider 时，默认不规划图片资产、不生成图片 prompt、不创建图片审批队列。
+- 图片 provider 与文本 provider 分离。未配置图片 provider 时，默认不规划图片资产、不生成图片 prompt。
 - 显式配置 OpenAI-compatible 图片 provider 后，先按 Responses `image_generation` tool 生图；模型只支持 image generations 时 fallback 到 `/v1/images/generations`。
 - 图片 provider 必须有单次请求超时保护。图片模型卡住、网络不返回或下载生成图失败时，只能让对应 asset 进入失败/待处理状态，不得无限阻塞 `/pipeline/drafts`。
-- 真实生成的图片资产保存到 `workspace/runs/<runId>/assets/`；微信公众号默认 16:9 封面和正文配图，小红书默认 3:4 封面卡和图文卡。
+- 真实生成的图片资产保存到 `workspace/runs/<runId>/assets/`；微信公众号默认 16:9 封面和正文配图，小红书默认 3:4 封面卡和图文卡。图片修改和单图重生成在草稿页图片资产栏完成；阻塞与提醒只展示图片生成失败等异常，不承载审批流程。
 - 图片生成成功不等于平台上传成功。微信公众号真实上传仍必须通过 token、封面素材、正文图片转存和 draft/add gate；XHS handoff 必须写入本地图片路径和页面级保存信号。
 - 单图重生成必须只更新指定 asset 的 revision、filename、path、status 和 error，不得重写其他图片或文字草稿。
 

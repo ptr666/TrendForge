@@ -84,21 +84,21 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
   }
 
   for (const asset of safeArray(result.assets)) {
-    if (asset.approvalRequired || asset.status === "needs-approval") {
+    if (asset.status === "blocked") {
       const draft = safeArray(result.drafts).find((candidate) => candidate.id === asset.draftId);
       queue.push({
         id: `${result.runId}:asset:${asset.id}`,
         runId: result.runId,
-        status: asset.status === "blocked" ? "blocked" : "needs-review",
+        status: "blocked",
         category: "asset",
-        title: `${draft?.platform ?? "platform"} asset ${asset.type}`,
-        reason: `Asset plan requires approval before real platform draft creation. Ratio: ${asset.ratio ?? "platform default"}.`,
-        action: "Review the prompt or generated asset; approve, regenerate, or attach a local asset before real draft creation.",
+        title: `${draft?.platform ?? "platform"} image ${asset.type}`,
+        reason: asset.errorMessage ?? `Image generation failed. Ratio: ${asset.ratio ?? "platform default"}.`,
+        action: "Open the draft image panel, regenerate this image, or continue with text-only draft if acceptable.",
         sourceItemId: draft?.sourceItemId,
         draftId: asset.draftId,
         platform: draft?.platform,
         artifactPath: asset.path,
-        priority: "normal",
+        priority: "high",
         createdAt
       });
     }

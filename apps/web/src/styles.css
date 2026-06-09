@@ -783,7 +783,11 @@ nav span {
 .platform-preview-grid {
   display: grid;
   gap: 16px;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(2, minmax(320px, 1fr));
+}
+
+.draft-card.platform-review {
+  grid-column: 1 / -1;
 }
 
 .draft-card-title span {
@@ -805,13 +809,20 @@ nav span {
   overflow: hidden;
 }
 
-.wechat-article-preview > img,
+.wechat-article-preview > img {
+  aspect-ratio: 16 / 9;
+  display: block;
+  min-height: 180px;
+  object-fit: cover;
+  place-items: center;
+  width: 100%;
+}
+
 .image-placeholder {
   aspect-ratio: 16 / 9;
   background: linear-gradient(135deg, #e8f0df, #f9e7c2);
   display: grid;
   min-height: 150px;
-  object-fit: cover;
   place-items: center;
   width: 100%;
 }
@@ -834,7 +845,25 @@ nav span {
 
 .inline-image-row img {
   border-radius: 14px;
+  display: block;
+  object-fit: cover;
   width: 100%;
+}
+
+.wechat-preview-body .markdown-preview.compact {
+  max-height: 30rem;
+}
+
+.review-draft-preview {
+  border: 1px solid rgba(15, 127, 95, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 250, 240, 0.62);
+  padding: 1rem;
+}
+
+.review-draft-preview .markdown-preview {
+  max-height: none;
+  overflow: visible;
 }
 
 .xhs-phone-preview {

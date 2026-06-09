@@ -88,11 +88,45 @@ test("pipeline only plans image assets when an image provider is configured", as
     assert.ok(result.assets.every((asset) => asset.id.startsWith("tf-run-image-provider-")));
     assert.ok(result.assets.every((asset) => String(asset.metadata?.outputDir ?? "").includes(path.join(rootDir, "run-image-provider", "assets"))));
     assert.ok(result.assets.every((asset) => asset.status === "needs-approval"));
-    assert.ok(result.reviewQueue?.some((item) => item.category === "asset"));
+    assert.equal(result.reviewQueue?.some((item) => item.category === "asset"), false);
 
     const events = await store.readEvents("run-image-provider");
     assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "draft_finished" && event.platform === "wechat" && event.processedCount === 1));
     assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "finished" && event.processedCount === 2 && event.count === 4));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("review queue only surfaces blocked image assets as exceptions", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-image-exception-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({
+    store,
+    mediaComposer: createDefaultMediaComposer({
+      async planPrompt() {
+        throw new Error("image provider failed");
+      }
+    })
+  });
+
+  try {
+    const result = await pipeline.run({
+      runId: "run-image-exception",
+      query: JSON.stringify({
+        items: [{
+          title: "AI publishing workflow with image failure",
+          url: "about:blank",
+          summary: "A signal for testing image exception reminders.",
+          tags: ["featured"]
+        }]
+      }),
+      requestedPlatforms: ["wechat"],
+      topN: 1
+    });
+
+    assert.ok(result.assets.every((asset) => asset.status === "blocked"));
+    assert.ok(result.reviewQueue?.some((item) => item.category === "asset" && item.status === "blocked" && /image provider failed/.test(item.reason)));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }

@@ -107,7 +107,7 @@ $env:TRENDFORGE_MODEL_NAME = "<model-name>"
 
 默认行为：
 
-- 未配置图片模型时，不申请生图、不生成图片资产、不进入图片审批队列。
+- 未配置图片模型时，不申请生图、不生成图片资产。
 - 配置图片模型后，草稿生成阶段会同步规划并生成图片。
 - 图片失败不会阻断文字草稿保存；失败图片会在草稿页显示状态并提供单图重生成。
 
@@ -145,6 +145,8 @@ Web 草稿页支持：
 - 状态和失败原因查看。
 - 单张图片重生成。
 - 微信图文预览和小红书手机卡片预览。
+
+图片不再走独立审批流程。“阻塞与提醒”只展示图片生成失败、平台 gate 阻塞或 pipeline 异常；正常生成的图片在草稿页直接预览和重生成。
 
 ## 5. 微信公众号配置
 
@@ -187,6 +189,8 @@ GET /cgi-bin/token
 -> POST /cgi-bin/media/uploadimg
 -> POST /cgi-bin/draft/add
 ```
+
+本地保存的微信公众号草稿正文仍是 Markdown，便于在 TrendForge 内审阅和归档；真实调用 `draft/add` 前，publisher 会把 Markdown 标题、段落、列表、引用和图片转换为带基础内联样式的微信 HTML，避免 `#`、`##`、`>` 等 Markdown 标记原样出现在公众号后台。
 
 安全约定：
 
@@ -370,4 +374,3 @@ git status --short
 - `workspace/runs/*`
 - `.env`
 - API key、AppSecret、access token、cookie、账号截图。
-

@@ -69,6 +69,7 @@ type DraftAsset = PipelineRun["assets"][number];
 type DraftItem = PipelineRun["drafts"][number];
 
 function assetImageUrl(runId: string | undefined, asset: DraftAsset): string | undefined {
+  if (asset.previewUrl && /^https?:\/\//i.test(asset.previewUrl)) return asset.previewUrl;
   if (!runId || !asset.path || asset.status === "blocked") return undefined;
   return `${apiBase}/runs/${encodeURIComponent(runId)}/assets/${encodeURIComponent(asset.id)}/file?rev=${asset.revision ?? 1}`;
 }
@@ -127,7 +128,11 @@ function PlatformArticlePreview({ run, draft, assets }: { run?: PipelineRun; dra
       </div>
     );
   }
-  return <MarkdownPreview compact content={draftPreviewText(draft)} />;
+  return (
+    <div className="review-draft-preview">
+      <MarkdownPreview content={draftPreviewText(draft)} />
+    </div>
+  );
 }
 
 function friendlyHealthMessage(message?: string): string {
@@ -609,25 +614,23 @@ export function DraftPreviewGrid({
 export function IssuesPanel({
   reviewQueue,
   queueMetrics,
-  loadArtifact,
-  approveAsset
+  loadArtifact
 }: {
   reviewQueue: ReviewQueueItem[];
   queueMetrics: QueueMetrics;
   loadArtifact: (artifactPath: string, title?: string) => void;
-  approveAsset: (item: ReviewQueueItem) => void;
 }) {
   return (
     <section className="issues-strip" aria-label="阻塞与提醒">
       <div className="section-title compact">
         <div>
           <p className="eyebrow">阻塞与提醒</p>
-          <h2>只展示需要处理的问题，不作为主流程入口。</h2>
+          <h2>只展示异常情况，不再承载审批流程。</h2>
         </div>
         <StatusPill state={queueMetrics.blocked > 0 ? "error" : reviewQueue.length > 0 ? "loading" : "success"} label={`${reviewQueue.length} 项`} />
       </div>
       <div className="queue-list">
-        {reviewQueue.length === 0 && <p className="helper">当前没有需要处理的问题。</p>}
+        {reviewQueue.length === 0 && <p className="helper">当前没有异常提醒。图片审核、草稿审阅和平台确认都在草稿生成区域完成。</p>}
         {reviewQueue.map((item) => (
           <article className={`queue-card ${item.status} ${item.category === "asset" ? "asset-card" : ""}`} key={item.id}>
             <div>
@@ -643,7 +646,6 @@ export function IssuesPanel({
             <div className="queue-actions">
               {item.evidenceUrl && <a href={item.evidenceUrl} target="_blank" rel="noreferrer">打开来源</a>}
               {item.artifactPath && <button onClick={() => loadArtifact(item.artifactPath ?? "", item.title)}>打开产物</button>}
-              {item.category === "asset" && <button type="button" onClick={() => approveAsset(item)}>批准图片</button>}
             </div>
           </article>
         ))}
@@ -994,53 +996,6 @@ export function DraftPreviewGridV2({
         </aside>
       </div>
 
-      <div className="workflow-steps legacy-draft-steps" hidden>
-        <article>
-          <strong>1. 选择草稿类型</strong>
-          <div className="toggle-row">
-            {platformOptions.map((platform) => (
-              <label key={platform}><span><input type="checkbox" checked={runSettings.platforms.includes(platform)} onChange={() => togglePlatform(platform)} /> {displayLabel(platform)}</span></label>
-            ))}
-          </div>
-        </article>
-        <article>
-          <strong>2. 审阅本地草稿</strong>
-          <p>先打开评审稿、微信草稿或小红书草稿预览，确认内容后再推进平台。</p>
-        </article>
-        <article>
-          <strong>3. 推进平台草稿</strong>
-          <label><span><input type="checkbox" checked={runSettings.allowRealDraft} onChange={(event) => setRunSettings({ ...runSettings, allowRealDraft: event.target.checked })} /> 创建真实平台草稿（需二次确认且连接检查通过）</span></label>
-          <button type="button" disabled={busy === "publish" || platformDrafts.length === 0} onClick={publishDrafts}>推进平台草稿</button>
-        </article>
-      </div>
-
-      <div className="draft-grid" hidden>
-        {drafts.length === 0 && <p className="helper">候选评审后勾选内容，再生成评审稿、微信公众号和小红书草稿。</p>}
-        {drafts.map((draft) => {
-          const assets = (run?.assets ?? []).filter((asset) => draft.assetIds?.includes(asset.id) || asset.draftId === draft.id);
-          const publish = (run?.publishResults ?? []).find((result) => asString(result.draftId) === draft.id);
-          const handoffs = publishArtifactPaths(run, draft.id);
-          return (
-            <article className="draft-card" key={draft.id}>
-              <span>{displayLabel(draft.platform)}</span>
-              <h3>{draft.title}</h3>
-              <MarkdownPreview compact content={draft.body ?? draft.digest ?? "暂无预览。"} />
-              {assets.length === 0 && <p className="helper">未配置图片生成模型，本次不会申请图片生成。</p>}
-              <div className="asset-list">
-                {assets.map((asset) => (
-                  <small key={asset.id}>图片：{displayLabel(asset.type)} / {asset.ratio ?? "默认比例"} / {displayLabel(asset.status ?? "planned")}</small>
-                ))}
-              </div>
-              {publish && <small>平台推进：{displayLabel(asString(publish.status))} / {asString(publish.message) || asString(publish.verificationSignal) || "已生成交接信息"}</small>}
-              <div className="action-row">
-                {draft.artifactPath && <button type="button" onClick={() => loadArtifact(draft.artifactPath ?? "", `${displayLabel(draft.platform)}: ${draft.title}`)}>{draft.platform === "review" ? "评审稿预览" : "打开草稿预览"}</button>}
-                {handoffs.map((handoff) => <button type="button" key={handoff.path} onClick={() => loadArtifact(handoff.path, handoff.label)}>{handoff.label}</button>)}
-              </div>
-              <RawJsonDetails data={{ draft, assets, publish }} />
-            </article>
-          );
-        })}
-      </div>
     </section>
   );
 }
