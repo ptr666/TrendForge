@@ -44,6 +44,7 @@ export interface PipelineDeps {
   draftArtifactDir?: string;
   fullTextArtifactDir?: string;
   mediaComposer?: MediaComposer;
+  scoreConcurrency?: number;
 }
 
 function defaultHandoffDir(runId: string, baseDir?: string, runsRoot?: string): string {
@@ -79,6 +80,50 @@ function canGenerateFinalDraft(item: SourceItem, article: VerifiedArticle): bool
 
 function userRiskNotes(notes: string[]): string[] {
   return notes.filter((note) => note !== "Original text acquisition planned for BrowserAct.");
+}
+
+function fallbackSelection(article: VerifiedArticle, reason: string): CandidateSelection {
+  return {
+    sourceItemId: article.sourceItemId,
+    score: 0,
+    reason,
+    targetPlatforms: ["review"],
+    angle: "未入选",
+    tags: [],
+    skippedReason: reason
+  };
+}
+
+function fallbackSummary(item: SourceItem, article: VerifiedArticle, selection: CandidateSelection, reason: string) {
+  const original = article.fullText?.trim() || item.summary || item.rawText || item.title;
+  return {
+    sourceItemId: item.id,
+    title: item.title,
+    translatedOriginal: original,
+    summary: `模型总结失败，已使用本地兜底摘要：${item.summary ?? article.fullText?.slice(0, 220) ?? item.title}`,
+    angle: selection.angle ?? "AI 热点观察",
+    keyPoints: [
+      item.summary ?? article.fullText?.slice(0, 160) ?? item.title,
+      `评分理由：${selection.reason}`,
+      `兜底原因：${reason}`
+    ],
+    riskNotes: [`模型总结失败：${reason}`]
+  };
+}
+
+async function mapWithConcurrency<T, R>(items: T[], concurrency: number, worker: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.max(1, Math.min(concurrency, items.length));
+  await Promise.all(Array.from({ length: workerCount }, async () => {
+    for (;;) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index], index);
+    }
+  }));
+  return results;
 }
 
 function emptyRun(runId: string, startedAt = new Date().toISOString()): PipelineRunResult {
@@ -194,6 +239,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
   const textProvider = deps.textProvider ?? createDefaultTextProvider();
   const media = deps.mediaComposer ?? createDefaultMediaComposer();
   const publishers = deps.publishers ?? createPlannedPublishers();
+  const scoreConcurrency = deps.scoreConcurrency ?? 4;
   const fullTextProvider = deps.fullTextProvider ?? createHttpFullTextProvider();
 
   async function acquireFullTextForItem(item: SourceItem, article: VerifiedArticle): Promise<VerifiedArticle> {
@@ -292,22 +338,39 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       }
     }
 
-    const scored: CandidateSelection[] = [];
-    for (const article of verifiedArticles) {
-      const selection = await selector.score(article);
-      scored.push(selection);
-      await deps.store.appendEvent(runId, {
-        stage: "score",
-        sourceItemId: article.sourceItemId,
-        score: selection.score
-      });
-    }
+    const scored = await mapWithConcurrency(verifiedArticles, scoreConcurrency, async (article) => {
+      try {
+        const selection = await selector.score(article);
+        await deps.store.appendEvent(runId, {
+          stage: "score",
+          sourceItemId: article.sourceItemId,
+          score: selection.score
+        });
+        return selection;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        errors.push({ stage: `score:${article.sourceItemId}`, message });
+        await deps.store.appendEvent(runId, {
+          stage: "score_failed",
+          sourceItemId: article.sourceItemId,
+          score: 0,
+          message
+        });
+        await deps.store.appendEvent(runId, {
+          stage: "screen_item_skipped",
+          sourceItemId: article.sourceItemId,
+          reason: message
+        });
+        return fallbackSelection(article, message);
+      }
+    });
     return { verifiedArticles, scored };
   }
 
   async function fetchSelectedFullText(runId: string, sourceItems: SourceItem[], verifiedArticles: VerifiedArticle[], selected: CandidateSelection[], request: { allowBrowserFallback?: boolean; allowMediaCrawlerFallback?: boolean }, errors?: Array<{ stage: string; message: string }>, targetCount?: number) {
     const usableSelections: CandidateSelection[] = [];
     for (const selection of selected) {
+      if (selection.skippedReason) continue;
       if (targetCount !== undefined && usableSelections.length >= targetCount) break;
       const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
       const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
@@ -355,14 +418,24 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         usableSelections.push(selection);
       } else {
         const reason = currentArticle.failureReason ?? "Full original text was not available for final summary generation.";
+        selection.skippedReason = reason;
         errors?.push({ stage: `select:${item.id}`, message: reason });
         await deps.store.appendEvent(runId, {
-          stage: "select",
+          stage: "screen_item_skipped",
           status: "skipped",
           sourceItemId: item.id,
           score: 0,
           reason
         });
+        if (targetCount !== undefined && usableSelections.length < targetCount) {
+          await deps.store.appendEvent(runId, {
+            stage: "candidate_backfill",
+            status: "continued",
+            sourceItemId: item.id,
+            selectedCount: usableSelections.length,
+            targetCount
+          });
+        }
       }
     }
     return usableSelections;
@@ -376,7 +449,17 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
       const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
       if (!article || !item) continue;
       try {
-        const summary = await textProvider.summarize(article, selection);
+        let summary;
+        let summaryFallback = false;
+        try {
+          summary = await textProvider.summarize(article, selection);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors?.push({ stage: `summarize:${item.id}`, message });
+          summary = fallbackSummary(item, article, selection, message);
+          summaryFallback = true;
+          await deps.store.appendEvent(runId, { stage: "summary_fallback", sourceItemId: article.sourceItemId, status: "used", message });
+        }
         summaries.push(summary);
         candidateReviews.push({
           sourceItemId: item.id,
@@ -395,9 +478,12 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
           originalArtifactPath: article.fullTextArtifactPath,
           originalPreview: article.fullText?.slice(0, 1200),
           summary,
-          riskNotes: userRiskNotes(summary.riskNotes)
+          riskNotes: userRiskNotes(summary.riskNotes),
+          summaryFallback,
+          fullTextStatus: article.status,
+          scoreReason: selection.reason
         });
-        await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
+        await deps.store.appendEvent(runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: summaryFallback ? "fallback" : "finished" });
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
         errors?.push({ stage: `summarize:${item.id}`, message });
@@ -527,6 +613,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         errors.push({ stage: "select", message: "No selected candidate had verified original text for candidate review." });
       }
       const { summaries, candidateReviews } = await summarizeSelections(request.runId, sourceItems, verifiedArticles, selections, errors);
+      const skippedItems = scored.filter((selection) => selection.skippedReason);
       const finishedAt = new Date().toISOString();
       const result: PipelineRunResult = {
         ...emptyRun(request.runId, startedAt),
@@ -536,6 +623,7 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         verifiedArticles,
         selections,
         candidateReviews,
+        skippedItems,
         summaries,
         errors
       };
@@ -701,19 +789,37 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
 
       const scored = [];
       for (const article of verifiedArticles) {
-        const selection = await selector.score(article);
-        scored.push(selection);
-        await deps.store.appendEvent(request.runId, {
-          stage: "score",
-          sourceItemId: article.sourceItemId,
-          score: selection.score
-        });
+        try {
+          const selection = await selector.score(article);
+          scored.push(selection);
+          await deps.store.appendEvent(request.runId, {
+            stage: "score",
+            sourceItemId: article.sourceItemId,
+            score: selection.score
+          });
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          errors.push({ stage: `score:${article.sourceItemId}`, message });
+          scored.push(fallbackSelection(article, message));
+          await deps.store.appendEvent(request.runId, {
+            stage: "score_failed",
+            sourceItemId: article.sourceItemId,
+            score: 0,
+            message
+          });
+          await deps.store.appendEvent(request.runId, {
+            stage: "screen_item_skipped",
+            sourceItemId: article.sourceItemId,
+            reason: message
+          });
+        }
       }
 
       const requestedTopN = request.topN ?? 5;
       const candidateSelections = selector.selectTopN(scored, scored.length);
       const selections = [];
       for (const selection of candidateSelections) {
+        if (selection.skippedReason) continue;
         if (selections.length >= requestedTopN) break;
         const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
         const item = sourceItems.find((candidate) => candidate.id === selection.sourceItemId);
@@ -761,14 +867,24 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
           selections.push(selection);
         } else {
           const reason = currentArticle.failureReason ?? "Full original text was not available for final summary generation.";
+          selection.skippedReason = reason;
           errors.push({ stage: `select:${item.id}`, message: reason });
           await deps.store.appendEvent(request.runId, {
-            stage: "select",
+            stage: "screen_item_skipped",
             status: "skipped",
             sourceItemId: item.id,
             score: 0,
             reason
           });
+          if (selections.length < requestedTopN) {
+            await deps.store.appendEvent(request.runId, {
+              stage: "candidate_backfill",
+              status: "continued",
+              sourceItemId: item.id,
+              selectedCount: selections.length,
+              targetCount: requestedTopN
+            });
+          }
         }
       }
 
@@ -785,9 +901,27 @@ export function createDefaultPipeline(deps: PipelineDeps): TrendForgePipeline {
         const article = verifiedArticles.find((candidate) => candidate.sourceItemId === selection.sourceItemId);
         if (!article) continue;
         try {
-          const summary = await textProvider.summarize(article, selection);
+          let summary;
+          let summaryFallback = false;
+          try {
+            summary = await textProvider.summarize(article, selection);
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            errors.push({ stage: `summarize:${article.sourceItemId}`, message });
+            const item = sourceItems.find((candidate) => candidate.id === article.sourceItemId);
+            summary = fallbackSummary(item ?? {
+              id: article.sourceItemId,
+              sourceType: "manual",
+              collectorAdapter: "manual",
+              complianceStatus: "not_required",
+              title: article.sourceItemId,
+              url: article.evidenceUrl ?? "about:blank"
+            }, article, selection, message);
+            summaryFallback = true;
+            await deps.store.appendEvent(request.runId, { stage: "summary_fallback", sourceItemId: article.sourceItemId, status: "used", message });
+          }
           summaries.push(summary);
-          await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: "finished" });
+          await deps.store.appendEvent(request.runId, { stage: "summarize", sourceItemId: article.sourceItemId, status: summaryFallback ? "fallback" : "finished" });
           if (request.requestedPlatforms.includes("review")) {
             drafts.push(await writeDraftArtifact(request.runId, await generator.generateReviewDraft(selection, article, summary), deps.draftArtifactDir, deps.store.rootDir));
           }

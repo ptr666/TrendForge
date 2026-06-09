@@ -48,6 +48,10 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 | 20 | 长任务进度按阶段切片 | done | Web 轮询 `/runs/:runId/events` 时按 `screen`、`draft_generation`、`platform_publish` 各自阶段计算进度；热点分析阶段的原文失败提醒不会在草稿生成阶段重复出现；草稿生成写入 `compose_media` started/draft_started/draft_finished/finished 事件。 |
 | 21 | 阻塞与提醒只显示异常 | done | 正常生成的图片不再进入 review queue 或审批流程；图片预览和单图重生成留在草稿页，只有 blocked 图片资产、publisher gate 和 pipeline 错误进入阻塞与提醒。 |
 | 22 | 微信 Markdown 上传排版修复 | done | 微信 publisher 在 `draft/add` 前把本地 Markdown 草稿转换为微信 HTML，处理标题、段落、列表、引用和正文图片，避免 Markdown 标记原样进入公众号草稿箱。 |
+| 23 | 生成性能初步优化 | done | 根据 run events 定位慢点：评分模型和图片模型为主要瓶颈；评分阶段默认 4 并发，同一草稿的多张图片并发生成，并新增项目结构文档说明运行产物边界。 |
+| 24 | Pipeline 单条失败隔离 | done | 单条评分失败记 0 分并跳过，原文不可用继续补足候选，文本总结失败使用中文兜底摘要；run events 记录 `score_failed`、`screen_item_skipped`、`summary_fallback`、`candidate_backfill`。 |
+| 25 | 图片状态与异常提醒语义收敛 | done | 成功图片状态改为 `ready`，失败图片为 `failed`/`blocked`；阻塞与提醒只展示 pipeline、图片和 publisher gate 异常，不再承载 summary/draft/image 审批流程。 |
+| 26 | Web 草稿页去旧版预览 | done | 草稿生成只保留新版三栏工作台；运行历史和 artifact viewer 解耦，旧版草稿卡片不再重复渲染。 |
 
 ## Current Web Flow
 
@@ -72,6 +76,8 @@ AIHot 信息 -> 热点筛选 -> 原文补全 -> 中文译文/中文总结
 - 文本模型负责真实中文译文和总结；deterministic provider 只提供可测试占位。
 - 图片模型独立于文本模型；未配置时不生成图片资产，配置后可真实生成本地图文资产，但不自动上传平台；图片调整在草稿页完成，阻塞与提醒只展示异常。
 - 长任务进度按当前任务阶段切片；草稿生成可显示媒体合成阶段、已处理草稿数和耗时。
+- 热点评分使用有界并发；图片生成在同一草稿内并发处理封面和正文图。
+- 单条模型或原文失败不会拖垮整轮热点分析；失败条目写入 skipped 摘要，系统继续尝试补足候选数量。
 - RSS/RSSHub API 保留，但不在当前主界面暴露。
 - 原始 JSON 只作为调试折叠区。
 - 启动脚本不会清空 run history；Web 显示当前 `runsDir`。

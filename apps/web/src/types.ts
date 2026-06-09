@@ -187,6 +187,10 @@ export interface CandidateReview {
     riskNotes: string[];
   };
   riskNotes: string[];
+  skippedReason?: string;
+  summaryFallback?: boolean;
+  fullTextStatus?: "pending" | "verified" | "partial" | "failed";
+  scoreReason?: string;
 }
 
 export interface ReviewQueueItem {
@@ -213,6 +217,7 @@ export interface PipelineRun {
   verifiedArticles: Array<Record<string, unknown>>;
   selections: Array<Record<string, unknown>>;
   candidateReviews?: CandidateReview[];
+  skippedItems?: Array<Record<string, unknown>>;
   summaries: Array<Record<string, unknown>>;
   drafts: Array<{ id: string; sourceItemId: string; platform: Platform; title: string; artifactPath?: string; body?: string; digest?: string; assetIds?: string[] }>;
   assets: Array<{

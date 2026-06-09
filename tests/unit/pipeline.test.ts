@@ -35,7 +35,7 @@ test("pipeline runs from AIHot source to platform draft plans and events", async
     assert.equal(result.drafts.length, 3);
     assert.deepEqual(result.assets, []);
     assert.ok(result.publishResults.every((publishResult) => publishResult.status === "queued"));
-    assert.ok(result.reviewQueue?.some((item) => item.category === "publisher" && item.platform === "xhs"));
+    assert.equal(result.reviewQueue?.some((item) => item.category === "publisher"), false);
     assert.equal(result.reviewQueue?.some((item) => item.category === "asset"), false);
 
     const events = await store.readEvents("run-aihot");
@@ -87,12 +87,128 @@ test("pipeline only plans image assets when an image provider is configured", as
     assert.ok(result.assets.some((asset) => asset.platform === "xhs" && asset.type === "cover" && asset.ratio === "3:4"));
     assert.ok(result.assets.every((asset) => asset.id.startsWith("tf-run-image-provider-")));
     assert.ok(result.assets.every((asset) => String(asset.metadata?.outputDir ?? "").includes(path.join(rootDir, "run-image-provider", "assets"))));
-    assert.ok(result.assets.every((asset) => asset.status === "needs-approval"));
+    assert.ok(result.assets.every((asset) => asset.status === "ready"));
     assert.equal(result.reviewQueue?.some((item) => item.category === "asset"), false);
 
     const events = await store.readEvents("run-image-provider");
     assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "draft_finished" && event.platform === "wechat" && event.processedCount === 1));
     assert.ok(events.some((event) => event.stage === "compose_media" && event.status === "finished" && event.processedCount === 2 && event.count === 4));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline isolates one scoring failure and continues screening other items", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-score-failure-isolated-"));
+  const store = createRunStore({ rootDir });
+  let scoreCalls = 0;
+  const pipeline = createDefaultPipeline({
+    store,
+    selector: {
+      async score(article) {
+        scoreCalls += 1;
+        if (scoreCalls === 1) {
+          throw new Error("model 504");
+        }
+        return {
+          sourceItemId: article.sourceItemId,
+          score: scoreCalls === 2 ? 90 : 80,
+          reason: "可用评分",
+          targetPlatforms: ["review"],
+          angle: "稳定性",
+          tags: ["test"]
+        };
+      },
+      selectTopN(scored, limit) {
+        return scored.slice().sort((a, b) => b.score - a.score).slice(0, limit);
+      }
+    }
+  });
+
+  try {
+    const result = await pipeline.screen({
+      runId: "run-score-failure-isolated",
+      sources: [{
+        id: "manual-aihot",
+        title: "Manual AIHot",
+        type: "aihot",
+        source: JSON.stringify({
+          items: [{
+            id: "score-fails",
+            title: "Scoring failure",
+            url: "about:blank",
+            summary: "This item triggers a scoring failure.",
+            tags: ["featured"]
+          }, {
+            id: "best",
+            title: "Best usable signal",
+            url: "about:blank",
+            summary: "This item should become the top candidate.",
+            tags: ["featured"]
+          }, {
+            id: "backup",
+            title: "Backup usable signal",
+            url: "about:blank",
+            summary: "This item should remain available.",
+            tags: ["featured"]
+          }]
+        }),
+        enabled: true
+      }],
+      candidateCount: 2
+    });
+    const events = await store.readEvents("run-score-failure-isolated");
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.candidateReviews?.length, 2);
+    assert.equal(result.candidateReviews?.[0]?.title, "Best usable signal");
+    assert.equal(result.candidateReviews?.[1]?.title, "Backup usable signal");
+    assert.ok(events.some((event) => event.stage === "score_failed" && event.score === 0));
+    assert.ok(events.some((event) => event.stage === "screen_item_skipped" && /model 504/.test(String(event.reason))));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline uses a deterministic Chinese summary fallback when the text model fails", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-summary-fallback-"));
+  const store = createRunStore({ rootDir });
+  const pipeline = createDefaultPipeline({
+    store,
+    textProvider: {
+      async summarize() {
+        throw new Error("summary model 504");
+      }
+    }
+  });
+
+  try {
+    const result = await pipeline.screen({
+      runId: "run-summary-fallback",
+      sources: [{
+        id: "manual-aihot",
+        title: "Manual AIHot",
+        type: "aihot",
+        source: JSON.stringify({
+          items: [{
+            id: "summary-fallback",
+            title: "AI infrastructure signal",
+            url: "about:blank",
+            summary: "A detailed signal about AI infrastructure investment and platform implications.",
+            tags: ["featured", "infrastructure"]
+          }]
+        }),
+        enabled: true
+      }],
+      candidateCount: 1
+    });
+    const events = await store.readEvents("run-summary-fallback");
+
+    assert.equal(result.status, "partial");
+    assert.equal(result.candidateReviews?.length, 1);
+    assert.equal(result.candidateReviews?.[0]?.summaryFallback, true);
+    assert.match(result.candidateReviews?.[0]?.summary.summary ?? "", /模型总结失败/);
+    assert.ok(events.some((event) => event.stage === "summary_fallback"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -125,8 +241,64 @@ test("review queue only surfaces blocked image assets as exceptions", async () =
       topN: 1
     });
 
-    assert.ok(result.assets.every((asset) => asset.status === "blocked"));
+    assert.ok(result.assets.every((asset) => asset.status === "failed"));
     assert.ok(result.reviewQueue?.some((item) => item.category === "asset" && item.status === "blocked" && /image provider failed/.test(item.reason)));
+  } finally {
+    await rm(rootDir, { recursive: true, force: true });
+  }
+});
+
+test("pipeline scores source items with bounded concurrency", async () => {
+  const rootDir = await mkdtemp(path.join(os.tmpdir(), "trendforge-score-concurrency-"));
+  const store = createRunStore({ rootDir });
+  let active = 0;
+  let maxActive = 0;
+  const pipeline = createDefaultPipeline({
+    store,
+    scoreConcurrency: 3,
+    selector: {
+      async score(article) {
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 15));
+        active -= 1;
+        return {
+          sourceItemId: article.sourceItemId,
+          score: 80,
+          reason: "并发评分测试。",
+          angle: "并发评分",
+          tags: ["test"],
+          targetPlatforms: ["review"]
+        };
+      },
+      selectTopN(scored, count) {
+        return scored.slice(0, count);
+      }
+    }
+  });
+
+  try {
+    const result = await pipeline.screen({
+      runId: "run-score-concurrency",
+      sources: [{
+        id: "manual-aihot",
+        title: "Manual AIHot",
+        type: "aihot",
+        source: JSON.stringify({
+          items: Array.from({ length: 8 }, (_, index) => ({
+            title: `AI signal ${index + 1}`,
+            url: "about:blank",
+            summary: "A signal for testing bounded concurrent scoring.",
+            tags: ["featured"]
+          }))
+        }),
+        enabled: true
+      }],
+      candidateCount: 2
+    });
+
+    assert.equal(result.selections.length, 2);
+    assert.equal(maxActive, 3);
   } finally {
     await rm(rootDir, { recursive: true, force: true });
   }
@@ -481,7 +653,7 @@ test("pipeline skips one item when original text is too short and continues othe
     assert.equal(result.candidateReviews?.[0]?.title, "Good original article");
     assert.equal(result.candidateReviews?.[1]?.title, "Backup original article");
     assert.equal(result.errors.some((error) => /short-original/.test(error.stage) || /正文太短/.test(error.message)), true);
-    assert.ok(events.some((event) => event.stage === "select" && event.status === "skipped" && event.score === 0 && /正文太短/.test(String(event.reason))));
+    assert.ok(events.some((event) => event.stage === "screen_item_skipped" && event.status === "skipped" && event.score === 0 && /正文太短/.test(String(event.reason))));
     assert.equal(result.reviewQueue?.some((item) => item.category === "original-text" && item.sourceItemId === "short-original"), false);
     assert.equal(result.reviewQueue?.some((item) => item.category === "pipeline" && item.id.includes(":pipeline:select:")), false);
     assert.ok(events.some((event) => event.stage === "summarize" && event.status === "finished"));
@@ -570,7 +742,7 @@ test("draft generation is separated from platform draft publishing", async () =>
 
     assert.ok(published.publishResults.some((result) => result.platform === "wechat" && result.status === "queued"));
     assert.ok(published.publishResults.some((result) => result.platform === "xhs" && result.status === "queued"));
-    assert.ok(published.reviewQueue?.some((item) => item.category === "publisher" && item.platform === "wechat"));
+    assert.equal(published.reviewQueue?.some((item) => item.category === "publisher"), false);
     assert.ok(events.some((event) => event.stage === "platform_publish" && event.status === "finished"));
   } finally {
     await rm(rootDir, { recursive: true, force: true });

@@ -7,12 +7,13 @@
 1. [完整使用流程](usage-flow.md)：按当前 Web 工作台跑通 AIHot-only 主流程。
 2. [完整配置指南](configuration.md)：文本模型、图片模型、微信、小红书、原文获取、runsDir 和排障配置。
 3. [本地环境](local-setup.md)：安装、启动、端口、日志、runsDir、provider 和 smoke 验证。
-4. [项目进度](project-progress.md)：当前已完成能力和后续端到端切片推进方式。
-5. [开发流程](development.md)：agent 或开发者如何按技能、TDD、适配器契约和文档同步推进。
-6. [外部项目与开源参考](vendor-projects.md)：AIHot、RSSHub、BrowserAct、MediaCrawler、微信和小红书相关参考边界。
-7. [Git 工作流](git-workflow.md)：本地提交和推送约定。
-8. [维护手册](maintenance-runbook.md)：常见运行、排障和维护动作。
-9. [Agent 配置](agents/)：本仓库 agent skills、issue tracker 和领域文档约定。
+4. [项目结构](project-structure.md)：源码、文档、外部参考和 `workspace/` 运行产物的边界。
+5. [项目进度](project-progress.md)：当前已完成能力和后续端到端切片推进方式。
+6. [开发流程](development.md)：agent 或开发者如何按技能、TDD、适配器契约和文档同步推进。
+7. [外部项目与开源参考](vendor-projects.md)：AIHot、RSSHub、BrowserAct、MediaCrawler、微信和小红书相关参考边界。
+8. [Git 工作流](git-workflow.md)：本地提交和推送约定。
+9. [维护手册](maintenance-runbook.md)：常见运行、排障和维护动作。
+10. [Agent 配置](agents/)：本仓库 agent skills、issue tracker 和领域文档约定。
 
 ## 文档放置规则
 

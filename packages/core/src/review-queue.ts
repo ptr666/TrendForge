@@ -50,41 +50,8 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
     }
   }
 
-  for (const summary of safeArray(result.summaries)) {
-    queue.push({
-      id: `${result.runId}:summary:${summary.sourceItemId}`,
-      runId: result.runId,
-      status: "needs-review",
-      category: "summary",
-      title: summary.title,
-      reason: "Generated Chinese summary should be checked before platform draft approval.",
-      action: "Review angle, key points, and risk notes; rerun summary if the angle is weak.",
-      sourceItemId: summary.sourceItemId,
-      priority: safeArray(summary.riskNotes).length > 0 ? "high" : "normal",
-      createdAt
-    });
-  }
-
-  for (const draft of safeArray(result.drafts)) {
-    queue.push({
-      id: `${result.runId}:draft:${draft.id}`,
-      runId: result.runId,
-      status: "needs-review",
-      category: "draft",
-      title: draft.title,
-      reason: `${draft.platform} draft is generated and needs human approval before real platform draft creation.`,
-      action: "Open the draft artifact, edit if needed, then approve the platform handoff.",
-      sourceItemId: draft.sourceItemId,
-      draftId: draft.id,
-      platform: draft.platform,
-      artifactPath: draft.artifactPath,
-      priority: "normal",
-      createdAt
-    });
-  }
-
   for (const asset of safeArray(result.assets)) {
-    if (asset.status === "blocked") {
+    if (asset.status === "blocked" || asset.status === "failed") {
       const draft = safeArray(result.drafts).find((candidate) => candidate.id === asset.draftId);
       queue.push({
         id: `${result.runId}:asset:${asset.id}`,
@@ -105,20 +72,19 @@ export function buildReviewQueue(result: PipelineRunResult): ReviewQueueItem[] {
   }
 
   for (const publishResult of safeArray(result.publishResults)) {
+    if (publishResult.status !== "failed") continue;
     queue.push({
       id: `${result.runId}:publisher:${publishResult.draftId}:${publishResult.platform}`,
       runId: result.runId,
-      status: publishResult.status === "failed" ? "blocked" : publishResult.status === "success" ? "ready" : "waiting",
+      status: "blocked",
       category: "publisher",
       title: `${publishResult.platform} handoff for ${publishResult.draftId}`,
-      reason: publishResult.message ?? publishResult.verificationSignal ?? "Publisher handoff is waiting for explicit action.",
-      action: publishResult.status === "failed"
-        ? "Resolve health gate requirements before retrying real draft creation."
-        : "Run preview/check commands and create a real platform draft only after explicit approval.",
+      reason: publishResult.message ?? publishResult.verificationSignal ?? "Publisher health gate failed.",
+      action: "Resolve health gate requirements before retrying real draft creation.",
       draftId: publishResult.draftId,
       platform: publishResult.platform,
       artifactPath: publishResult.artifactPath,
-      priority: publishResult.status === "failed" ? "high" : "normal",
+      priority: "high",
       createdAt
     });
   }

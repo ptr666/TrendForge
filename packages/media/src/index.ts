@@ -68,7 +68,7 @@ export function createDefaultMediaComposer(imageProvider?: ImageProvider): Media
             revision: 1,
             source: "placeholder",
             status: "planned",
-            approvalRequired: true,
+            approvalRequired: false,
             ratio: "16:9"
           },
           {
@@ -81,7 +81,7 @@ export function createDefaultMediaComposer(imageProvider?: ImageProvider): Media
             revision: 1,
             source: "placeholder",
             status: "planned",
-            approvalRequired: true,
+            approvalRequired: false,
             ratio: "16:9"
           }
         ];
@@ -98,7 +98,7 @@ export function createDefaultMediaComposer(imageProvider?: ImageProvider): Media
             revision: 1,
             source: "placeholder",
             status: "planned",
-            approvalRequired: true,
+            approvalRequired: false,
             ratio: "3:4"
           },
           {
@@ -111,7 +111,7 @@ export function createDefaultMediaComposer(imageProvider?: ImageProvider): Media
             revision: 1,
             source: "placeholder",
             status: "planned",
-            approvalRequired: true,
+            approvalRequired: false,
             ratio: "3:4"
           }
         ];
@@ -126,21 +126,20 @@ export function createDefaultMediaComposer(imageProvider?: ImageProvider): Media
         draft.assetIds = [];
         return draft;
       }
-      const generated = [];
-      for (const asset of assets) {
+      const generated = await Promise.all(assets.map(async (asset) => {
         try {
           const planned = await imageProvider.planPrompt(draft, asset);
-          Object.assign(asset, { ...planned, status: "needs-approval", approvalRequired: true, errorMessage: undefined });
+          Object.assign(asset, { ...planned, status: "ready", approvalRequired: false, errorMessage: undefined });
         } catch (error) {
           Object.assign(asset, {
             source: "placeholder",
-            status: "blocked",
-            approvalRequired: true,
+            status: "failed",
+            approvalRequired: false,
             errorMessage: error instanceof Error ? error.message : String(error)
           });
         }
-        generated.push(asset);
-      }
+        return asset;
+      }));
       draft.assetIds = generated.map((asset) => asset.id);
       return draft;
     }

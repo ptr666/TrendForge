@@ -35,6 +35,7 @@ export interface CandidateSelection {
   targetPlatforms: Platform[];
   angle?: string;
   tags: string[];
+  skippedReason?: string;
 }
 
 export interface ArticleSummary {
@@ -65,6 +66,10 @@ export interface CandidateReview {
   originalPreview?: string;
   summary: ArticleSummary;
   riskNotes: string[];
+  skippedReason?: string;
+  summaryFallback?: boolean;
+  fullTextStatus?: VerifiedArticle["status"];
+  scoreReason?: string;
 }
 
 export interface PlatformDraft {
@@ -91,7 +96,7 @@ export interface MediaAsset {
   revision?: number;
   filename?: string;
   source: "generated" | "local" | "remote" | "placeholder";
-  status?: "planned" | "needs-approval" | "approved" | "blocked";
+  status?: "planned" | "ready" | "failed" | "blocked" | "needs-approval" | "approved";
   approvalRequired?: boolean;
   path?: string;
   prompt?: string;
@@ -221,6 +226,7 @@ export interface PipelineRunResult {
   verifiedArticles: VerifiedArticle[];
   selections: CandidateSelection[];
   candidateReviews?: CandidateReview[];
+  skippedItems?: CandidateSelection[];
   summaries: ArticleSummary[];
   drafts: PlatformDraft[];
   assets: MediaAsset[];

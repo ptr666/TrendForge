@@ -84,7 +84,7 @@ test("API serves registered run asset files and regenerates one asset", async ()
         platform: "wechat",
         type: "cover",
         source: "generated",
-        status: "needs-approval",
+        status: "ready",
         revision: 1,
         path: assetPath
       }],
@@ -346,9 +346,9 @@ test("API can run RSS pipeline and read back run history artifacts", async () =>
     assert.ok(run.publishResults?.some((publishResult) => publishResult.platform === "xhs" && typeof publishResult.artifactPath === "string"));
     assert.equal(items.items?.[0]?.collectorAdapter, "rsshub");
     assert.deepEqual(drafts.drafts?.map((draft) => draft.platform).sort(), ["review", "wechat", "xhs"]);
-    assert.ok(reviewQueue.queue?.some((item) => item.category === "summary" && item.status === "needs-review"));
-    assert.ok(reviewQueue.queue?.some((item) => item.category === "draft" && item.platform === "wechat"));
-    assert.ok(reviewQueue.queue?.some((item) => item.category === "publisher" && item.platform === "xhs"));
+    assert.equal(reviewQueue.queue?.some((item) => item.category === "summary"), false);
+    assert.equal(reviewQueue.queue?.some((item) => item.category === "draft"), false);
+    assert.equal(reviewQueue.queue?.some((item) => item.category === "publisher"), false);
     assert.ok(run.drafts?.every((draft) => typeof draft.artifactPath === "string"));
     assert.ok(firstDraftArtifact);
     assert.match(firstDraftArtifactContent, /platform:/);

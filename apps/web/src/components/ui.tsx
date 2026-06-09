@@ -19,7 +19,7 @@ const labelMap: Record<string, string> = {
   blocked: "已阻塞",
   waiting: "等待中",
   "needs-review": "需审核",
-  "needs-approval": "待确认",
+  "needs-approval": "已生成",
   approved: "已确认",
   queued: "已排队",
   skipped: "已跳过",

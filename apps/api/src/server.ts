@@ -31,30 +31,15 @@ import {
   writeSubscriptions
 } from "../../../packages/config/src/subscriptions.js";
 import { AiHotSourceAdapter, MediaCrawlerFallbackAdapter, RssHubSourceAdapter } from "../../../packages/sources/src/adapters.js";
-import { createPlannedPublishers } from "../../../packages/publishers/src/index.js";
 import { checkWechatDraftGate, createWechatOfficialPublisher, requestWechatAccessToken } from "../../../packages/publishers/src/wechat.js";
 import { checkXhsDraftGate, createXhsBrowserPublisher } from "../../../packages/publishers/src/xhs.js";
 import { createBrowserActFullTextProvider, createOpenAICompatibleTextProvider } from "../../../packages/providers/src/index.js";
-import { createRuntimeProviders } from "../../../packages/providers/src/runtime.js";
+import { createPipelineDeps, createRuntimePublishers, providerState } from "./runtime.js";
 import { createRunStore } from "../../../packages/storage/src/run-store.js";
 import type { CandidateSelection, Platform, SourceItem, SourceSubscription, VerifiedArticle } from "../../../packages/core/src/types.js";
 
 const port = Number(process.env.TRENDFORGE_PORT ?? 4780);
 const store = createRunStore();
-
-async function createRuntimePublishers() {
-  const planned = createPlannedPublishers();
-  const wechatConfig = await readWechatConfig();
-  const xhsConfig = await readXhsConfig();
-  return planned.map((publisher) => publisher.platform === "wechat"
-    ? createWechatOfficialPublisher(wechatConfig)
-    : publisher.platform === "xhs" ? createXhsBrowserPublisher(xhsConfig)
-    : publisher);
-}
-
-async function createPipelineDeps() {
-  return createRuntimeProviders(process.env, await readModelConfig(), await readImageModelConfig());
-}
 
 async function readJsonBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
   const chunks = [];
@@ -74,29 +59,6 @@ function applyCors(res: http.ServerResponse): void {
   res.setHeader("access-control-allow-origin", process.env.TRENDFORGE_CORS_ORIGIN ?? "http://127.0.0.1:5173");
   res.setHeader("access-control-allow-methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader("access-control-allow-headers", "content-type");
-}
-
-function maskSecret(value: string | undefined): string | undefined {
-  if (!value) return undefined;
-  return value.length <= 4 ? "****" : `${"*".repeat(Math.max(4, value.length - 4))}${value.slice(-4)}`;
-}
-
-function providerState() {
-  const envKeyConfigured = Boolean(process.env.TRENDFORGE_MODEL_API_KEY);
-  return {
-    browserAct: {
-      enabled: process.env.TRENDFORGE_ENABLE_BROWSERACT === "1",
-      command: process.env.TRENDFORGE_BROWSERACT_COMMAND || "browser-act"
-    },
-    text: {
-      provider: process.env.TRENDFORGE_TEXT_PROVIDER ?? "deterministic",
-      baseUrl: process.env.TRENDFORGE_MODEL_BASE_URL ?? "https://api.openai.com/v1",
-      model: process.env.TRENDFORGE_MODEL_NAME ?? "gpt-4.1-mini",
-      keyConfigured: envKeyConfigured,
-      keyPreview: maskSecret(process.env.TRENDFORGE_MODEL_API_KEY)
-    },
-    mediaCrawler: mediaCrawlerDefaults
-  };
 }
 
 function sourceItemFromUrl(url: string): SourceItem {
